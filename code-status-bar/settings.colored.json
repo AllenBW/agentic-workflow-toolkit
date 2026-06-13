@@ -1,0 +1,59 @@
+{
+  "version": 3,
+  "colorLevel": 2,
+  "flexMode": "full-minus-40",
+  "compactThreshold": 60,
+  "inheritSeparatorColors": false,
+  "globalBold": false,
+  "gitCacheTtlSeconds": 5,
+  "minimalistMode": false,
+  "powerline": {
+    "enabled": false,
+    "separators": [""],
+    "separatorInvertBackground": [false],
+    "startCaps": [],
+    "endCaps": [],
+    "autoAlign": false,
+    "continueThemeAcrossLines": false
+  },
+  "lines": [
+    [
+      { "id": "l1-model", "type": "model", "color": "cyan", "bold": true },
+      { "id": "l1-sep0", "type": "separator" },
+      { "id": "l1-effort", "type": "thinking-effort", "color": "brightCyan" },
+      { "id": "l1-sep1", "type": "separator" },
+      { "id": "l1-cwd", "type": "current-working-dir", "color": "blue", "metadata": { "abbreviateHome": "true", "segments": "3" } },
+      { "id": "l1-sep2", "type": "separator" },
+      { "id": "l1-branch", "type": "git-branch", "color": "magenta" },
+      { "id": "l1-sep3", "type": "separator" },
+      { "id": "l1-changes", "type": "git-changes", "color": "yellow" },
+      { "id": "l1-sep4", "type": "separator", "character": " " },
+      { "id": "l1-aheadbehind", "type": "git-ahead-behind", "color": "cyan", "metadata": { "hideNoGit": "true" } },
+      { "id": "l1-flex", "type": "flex-separator" },
+      { "id": "l1-ctxbar", "type": "context-bar", "color": "brightBlue", "metadata": { "display": "progress-short" } },
+      { "id": "l1-sep5", "type": "separator" },
+      { "id": "l1-compaction", "type": "compaction-counter", "color": "brightYellow", "metadata": { "hideZero": "true" } }
+    ],
+    [
+      { "id": "l2-session", "type": "custom-command", "commandPath": "node \"$HOME/.config/ccstatusline/scripts/usage-bar.cjs\" session", "preserveColors": true, "timeout": 2000 },
+      { "id": "l2-sep1", "type": "separator" },
+      { "id": "l2-reset", "type": "reset-timer", "color": "brightBlack" },
+      { "id": "l2-flex", "type": "flex-separator" },
+      { "id": "l2-cost", "type": "session-cost", "color": "green" }
+    ],
+    [
+      { "id": "l3-weekly", "type": "custom-command", "commandPath": "node \"$HOME/.config/ccstatusline/scripts/usage-bar.cjs\" weekly", "preserveColors": true, "timeout": 2000 },
+      { "id": "l3-sep1", "type": "separator" },
+      { "id": "l3-opus", "type": "custom-command", "commandPath": "node \"$HOME/.config/ccstatusline/scripts/usage-bar.cjs\" opus", "preserveColors": true, "timeout": 2000 },
+      { "id": "l3-sep2", "type": "separator" },
+      { "id": "l3-weekreset", "type": "weekly-reset-timer", "color": "brightBlack" },
+      { "id": "l3-sep3", "type": "separator", "character": " · ", "color": "brightBlack" },
+      { "id": "l3-weekreset-date", "type": "weekly-reset-timer", "color": "brightBlack", "rawValue": true, "metadata": { "absolute": "true", "timezone": "local", "compact": "true", "hour12": "true" } }
+    ],
+    [
+      { "id": "l4-wtmode", "type": "worktree-mode", "color": "brightYellow" },
+      { "id": "l4-sep1", "type": "separator", "character": " " },
+      { "id": "l4-wtname", "type": "worktree-name", "color": "brightYellow" }
+    ]
+  ]
+}
