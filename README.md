@@ -20,7 +20,7 @@ Transparency isn't a feature bolted on the side; for agentic coding it's the who
 |---|---|---|
 | [**code-status-bar**](./code-status-bar) | A status line that shows usage limits, cost, context health, and git/worktree state at a glance | Claude Code (via [ccstatusline](https://github.com/sirmalloc/ccstatusline)) |
 
-> **New here? Start with the [Code Status Bar](./code-status-bar).** It installs as a portable, zero-dependency default, or an [opt-in colored variant](./code-status-bar#color--static-by-default-status-driven-by-opt-in) that recolors the usage bars **green → yellow → red** as you approach each limit — so you *feel* a wall coming before you read a single number.
+> **New here? Start with the [Code Status Bar](./code-status-bar).** It installs as a portable, zero-dependency default, or an [opt-in colored variant](./code-status-bar#color--static-by-default-status-driven-by-opt-in) that recolors the usage bars **green → yellow → red** as you approach each limit — so you *feel* a wall coming before you read a single number. You could build it by hand in ccstatusline's editor; this is that setup already done — one command, no configuration, and still fully editable.
 
 More to come. Each module is self-contained, declares which agent it targets, and explains *why* every piece earns its place — because justifying the real estate is part of the philosophy.
 

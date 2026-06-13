@@ -6,6 +6,17 @@ A status line for **Claude Code** that makes a coding session legible at a glanc
 
 ![The Code Status Bar rendering a representative session](./assets/statusline.png)
 
+## Build it yourself? You could — that's the point
+
+ccstatusline is a capable, open tool: every widget here is one you could add by hand in its interactive terminal editor. But "by hand" is real time — adding ~20 widgets across four lines, setting each one's color, display mode, pace cursor, and metadata, wiring the flex layout and the colored-bar helper, all by clicking through a TUI. This repo is **that afternoon already spent.**
+
+So you get both halves:
+
+- **Zero-config install.** One command, no setup — a considered bar working in your next session, instead of a blank statusline and a configuration session.
+- **Still fully yours to edit.** It's a plain JSON file (plus one small, readable script). Open ccstatusline's editor and tweak any widget, or hand-edit the JSON directly. Nothing is compiled, hidden, or locked — recolor a bar, drop a line, move a field.
+
+That combination is the **transparency** this toolkit is built on: a shortcut that costs you nothing in visibility or control. You save the upfront time *and* keep the ability to see exactly what it does and make it your own — the opposite of a black box.
+
 ## How it's organized
 
 Each line answers exactly one question:
