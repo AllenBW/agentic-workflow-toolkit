@@ -1,0 +1,9 @@
+{
+  "name": "shift",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Autonomous work-queue runner for Claude Code (Agentic Workflow Toolkit module 2)",
+  "bin": { "shift": "bin/shift" },
+  "engines": { "node": ">=18" },
+  "scripts": { "test": "node --test" }
+}
