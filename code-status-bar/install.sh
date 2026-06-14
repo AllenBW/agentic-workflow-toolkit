@@ -12,17 +12,47 @@ DEST="$CONFIG_DIR/settings.json"
 COLORED=0
 [ "${1:-}" = "--colored" ] && COLORED=1
 
-mkdir -p "$CONFIG_DIR"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo "")"
+if [ "$COLORED" -eq 1 ] && ! command -v node >/dev/null 2>&1; then
+  echo "Error: --colored needs Node on your PATH (the helper runs via node)." >&2
+  echo "Install Node, or use the default (no-flag) config." >&2
+  exit 1
+fi
 
-# fetch <relative-path> <destination> — prefer a local clone, fall back to download.
+mkdir -p "$CONFIG_DIR"
+
+# Only treat the script's directory as a real clone if it actually contains this
+# module (both files present). When run via `curl | bash`, BASH_SOURCE is unset and
+# this stays 0, so we always download instead of copying a stray local file.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || echo "")"
+LOCAL_OK=0
+if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/install.sh" ] && [ -f "$SCRIPT_DIR/settings.json" ]; then
+  LOCAL_OK=1
+fi
+
+# fetch <relative-path> <destination>: download (or copy from a verified clone) to a
+# temp file, validate, then move into place — so a failed fetch never leaves a broken
+# or empty config at the destination.
 fetch() {
-  local rel="$1" out="$2"
-  if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/$rel" ]; then
-    cp "$SCRIPT_DIR/$rel" "$out"
+  local rel="$1" out="$2" tmp
+  tmp="$(mktemp)"
+  if [ "$LOCAL_OK" -eq 1 ] && [ -f "$SCRIPT_DIR/$rel" ]; then
+    cp "$SCRIPT_DIR/$rel" "$tmp"
   else
-    curl -fsSL "$REPO_RAW/$rel" -o "$out"
+    curl -fsSL "$REPO_RAW/$rel" -o "$tmp"
   fi
+  if [ ! -s "$tmp" ]; then
+    echo "Error: fetched '$rel' is empty; aborting (your existing config is untouched)." >&2
+    rm -f "$tmp"; exit 1
+  fi
+  case "$rel" in
+    *.json)
+      if command -v node >/dev/null 2>&1; then
+        node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' "$tmp" 2>/dev/null \
+          || { echo "Error: fetched '$rel' is not valid JSON; aborting." >&2; rm -f "$tmp"; exit 1; }
+      fi
+      ;;
+  esac
+  mv "$tmp" "$out"
 }
 
 if [ -f "$DEST" ]; then
@@ -37,7 +67,6 @@ if [ "$COLORED" -eq 1 ]; then
   fetch "settings.colored.json" "$DEST"
   echo "Installed COLORED variant -> $DEST"
   echo "Helper script           -> $SCRIPTS_DIR/usage-bar.cjs"
-  echo "(needs Node on your PATH at render time — ccstatusline already provides it)"
 else
   fetch "settings.json" "$DEST"
   echo "Installed -> $DEST"
