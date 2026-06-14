@@ -1,0 +1,8 @@
+{
+  "name": "code-status-bar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Usage-limit-aware Claude Code status bar (Agentic Workflow Toolkit module 1)",
+  "engines": { "node": ">=18" },
+  "scripts": { "test": "node --test" }
+}
