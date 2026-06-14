@@ -8,18 +8,18 @@ const cp = require('node:child_process');
 
 const HOOK = path.resolve(__dirname, '..', 'hooks', 'shift-stop.cjs');
 
-function setupRun() {
+function setupRun(configOverride) {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'shift-hook-'));
   fs.mkdirSync(path.join(cwd, 'queue'), { recursive: true });
   fs.writeFileSync(path.join(cwd, 'queue', '01.md'), 'bin one');
   fs.writeFileSync(path.join(cwd, 'queue', '02.md'), 'bin two');
   const dir = path.join(cwd, '.shift');
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify(Object.assign({
     sources: [{ path: 'queue', kind: 'briefs' }],
     bounds: { maxHours: 24, maxIterations: 10 },
     definitionOfDone: 'done', git: {}
-  }));
+  }, configOverride || {})));
   fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({
     runId: 'r', startedAt: new Date().toISOString(), iterations: 0,
     branch: 'shift/x', currentBinId: null, bins: []
@@ -92,4 +92,51 @@ test('resolves .shift from the hook payload cwd, not the process cwd', () => {
   const r = JSON.parse(out || '{}');
   assert.equal(r.decision, 'block');
   assert.match(r.reason, /bin one/);
+});
+
+// ---- v3: verify gate ----
+
+test('verify gate (passing) marks bins done and drains', () => {
+  const { cwd, dir } = setupRun({ verify: { command: 'true', maxAttempts: 2 } });
+  runHook(cwd, { stop_hook_active: false }); // start bin 1
+  runHook(cwd, { stop_hook_active: true });  // verify passes -> bin1 done, start bin2
+  const s = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
+  assert.equal(s.bins.find(b => b.id === 'queue/01.md').status, 'done');
+});
+
+test('verify gate (failing) re-blocks the same bin with feedback, then blocks after maxAttempts', () => {
+  const { cwd, dir } = setupRun({ verify: { command: 'false', maxAttempts: 2 } });
+  runHook(cwd, { stop_hook_active: false });            // start bin 1
+  const r1 = runHook(cwd, { stop_hook_active: true });  // verify fails, attempt 1 < 2 -> retry SAME bin
+  assert.equal(r1.decision, 'block');
+  assert.match(r1.reason, /failed verification/);
+  assert.match(r1.reason, /bin one/);
+  let s = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
+  assert.equal(s.bins.find(b => b.id === 'queue/01.md').status, 'pending');
+  assert.equal(s.bins.find(b => b.id === 'queue/01.md').attempts, 1);
+
+  const r2 = runHook(cwd, { stop_hook_active: true });  // verify fails again, attempt 2 == max -> blocked, move on
+  assert.equal(r2.decision, 'block');
+  assert.match(r2.reason, /bin two/);
+  s = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
+  assert.equal(s.bins.find(b => b.id === 'queue/01.md').status, 'blocked');
+});
+
+// ---- v2: usage cap + cache ----
+
+test('usage cap from the hook payload ends the run and caches usage', () => {
+  const { cwd, dir } = setupRun({ bounds: { maxHours: 24, maxIterations: 10, usageCapPercent: 90 } });
+  const reset = Math.floor(Date.now() / 1000) + 3600;
+  const r = runHook(cwd, {
+    stop_hook_active: false,
+    rate_limits: {
+      five_hour: { used_percentage: 30, resets_at: reset },
+      seven_day: { used_percentage: 95, resets_at: reset }
+    }
+  });
+  assert.deepEqual(r, {});
+  assert.match(fs.readFileSync(path.join(dir, 'summary.md'), 'utf8'), /usage cap/);
+  const usage = JSON.parse(fs.readFileSync(path.join(dir, 'usage.json'), 'utf8'));
+  assert.equal(usage.weeklyPercent, 95);
+  assert.equal(usage.sessionResetAt, reset);
 });

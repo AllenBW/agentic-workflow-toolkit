@@ -5,6 +5,8 @@ const path = require('node:path');
 const { discoverBins } = require('../lib/discovery.cjs');
 const { loadState, saveState, mergeDiscovered, setBinStatus } = require('../lib/state.cjs');
 const { decide } = require('../lib/decision.cjs');
+const { runVerify } = require('../lib/verify.cjs');
+const { writeUsageCache } = require('../lib/usage.cjs');
 
 function readStdin() { try { return fs.readFileSync(0, 'utf8'); } catch { return ''; } }
 
@@ -17,15 +19,16 @@ function readBlocked(dir) {
   } catch { return []; }
 }
 
-// "Needs you: <detail>" lines the agent appended to the log (non-blocking flags).
 function readNeedsYou(dir) {
   try {
     return fs.readFileSync(path.join(dir, 'log.md'), 'utf8')
-      .split('\n')
-      .map(l => l.match(/^Needs you:\s*(.+)$/))
-      .filter(Boolean)
-      .map(m => m[1].trim());
+      .split('\n').map(l => l.match(/^Needs you:\s*(.+)$/)).filter(Boolean).map(m => m[1].trim());
   } catch { return []; }
+}
+
+function tail(s, n) {
+  if (typeof s !== 'string') return '';
+  return s.length > n ? s.slice(s.length - n) : s;
 }
 
 function writeSummary(dir, state, reason, now) {
@@ -60,33 +63,59 @@ function main() {
   if (!fs.existsSync(path.join(dir, 'state.json'))) { process.stdout.write('{}'); return; }
 
   const config = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'));
-  let state = loadState(dir);
   const now = Date.now();
   const killSwitch = fs.existsSync(path.join(dir, 'STOP'));
 
-  // Attribute the just-finished work to the current bin.
-  if (state.currentBinId) {
-    const b = readBlocked(dir).find(x => x.id === state.currentBinId);
-    state = setBinStatus(state, state.currentBinId, b
-      ? { status: 'blocked', note: b.note }
-      : { status: 'done', finishedAt: new Date(now).toISOString() });
+  // Capture rate limits from the hook payload: enforce the usage cap and cache
+  // reset times for the headless runner. Absent on non-Pro/Max or pre-first-response.
+  const usagePercent = writeUsageCache(dir, input.rate_limits, Math.floor(now / 1000));
+
+  // Re-discover (fresh text + new files) and carry over status/attempts.
+  let state = mergeDiscovered(loadState(dir), discoverBins(config.sources, cwd));
+
+  const prevBinId = state.currentBinId;
+  const verifyCmd = config.verify && config.verify.command;
+  const maxAttempts = (config.verify && config.verify.maxAttempts) || 2;
+  let retryFeedback = null;
+
+  // Attribute the just-finished work to the current bin (blocked / verify gate / done).
+  if (prevBinId) {
+    const blocked = readBlocked(dir).find(x => x.id === prevBinId);
+    if (blocked) {
+      state = setBinStatus(state, prevBinId, { status: 'blocked', note: blocked.note });
+    } else if (verifyCmd) {
+      const v = runVerify(verifyCmd, cwd);
+      if (v.ok) {
+        state = setBinStatus(state, prevBinId, { status: 'done', finishedAt: new Date(now).toISOString() });
+      } else {
+        const bin = state.bins.find(b => b.id === prevBinId) || {};
+        const attempts = (bin.attempts || 0) + 1;
+        if (attempts < maxAttempts) {
+          state = setBinStatus(state, prevBinId, { attempts }); // stays pending → re-blocked below
+          retryFeedback = `Your previous attempt failed verification (\`${verifyCmd}\`). Fix it and make it pass. Output (tail):\n${tail(v.output, 2000)}`;
+        } else {
+          state = setBinStatus(state, prevBinId, { status: 'blocked', attempts, note: `failed verification after ${attempts} attempts` });
+        }
+      }
+    } else {
+      state = setBinStatus(state, prevBinId, { status: 'done', finishedAt: new Date(now).toISOString() });
+    }
   }
 
-  // Re-discover (picks up newly added files) and carry over statuses.
-  state = mergeDiscovered(state, discoverBins(config.sources, cwd));
-
   const result = decide({
-    bins: state.bins, state, config, now,
+    bins: state.bins, state, config, now, usagePercent,
     stopHookActive: !!input.stop_hook_active, killSwitch
   });
 
   if (result.action === 'block') {
+    let reason = result.reason;
+    if (retryFeedback && result.nextBinId === prevBinId) reason += `\n\n${retryFeedback}`;
     state.iterations += 1;
     state.currentBinId = result.nextBinId;
     saveState(dir, state);
     fs.appendFileSync(path.join(dir, 'log.md'),
-      `\n## ${new Date(now).toISOString()} — start ${result.nextBinId} (iter ${state.iterations})\n`);
-    process.stdout.write(JSON.stringify({ decision: 'block', reason: result.reason }));
+      `\n## ${new Date(now).toISOString()} — work ${result.nextBinId} (iter ${state.iterations})\n`);
+    process.stdout.write(JSON.stringify({ decision: 'block', reason }));
   } else {
     state.currentBinId = null;
     saveState(dir, state);

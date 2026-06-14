@@ -259,3 +259,16 @@ shift/
 └─ examples/
    └─ queue/            # sample bins
 ```
+
+---
+
+## 13. Implementation status (as built — v1 + v2 + v3)
+
+All three phases are implemented on branch `shift-v1`. Notable as-built decisions:
+
+- **Rate-limit detection without the undocumented exit signature (resolves §9.2).** Research confirmed the headless rate-limit termination signature is undocumented, but the **Stop hook payload includes `rate_limits`**. So the engine caches the latest reset/usage to `.shift/usage.json`, and `lib/outcome.cjs` classifies a non-finalized, non-zero spawn as `rate_limited` by **inference** — near-limit cached usage (≥95%) + a future reset — with config-overridable stderr patterns as a fallback. No dependency on an exact exit code/message.
+- **Usage cap source (resolves §9.1).** Enforced from the hook payload's `rate_limits.seven_day.used_percentage`; absent data (non-Pro/Max, pre-first-response) degrades to "cap skipped," never an error.
+- **Verify gate (v3, resolves §9.3).** `verify.command` runs per bin; failures re-feed the bin with the output up to `maxAttempts`, then block it — so "looked done but wasn't" is caught, not silently accepted.
+- **Permissions.** `shift run` uses `--permission-mode` (default `acceptEdits`). Truly unattended work that runs commands typically needs `dontAsk` + a `permissions.allow` list, or `bypassPermissions` — documented in the README; the branch-only/no-push model and bounds are the backstop.
+
+**New modules beyond §12:** `lib/verify.cjs`, `lib/usage.cjs`, `lib/outcome.cjs`, `lib/run-loop.cjs`; `bin/shift` gains `run`. **Tests:** 52 in `shift` (pure unit + hook/CLI/run-loop integration), all green.

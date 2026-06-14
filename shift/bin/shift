@@ -11,8 +11,16 @@ function dateStr(d) { return d.toISOString().slice(0, 10); }
 
 const DEFAULT_CONFIG = {
   sources: [{ path: 'queue', kind: 'briefs' }],
-  bounds: { maxHours: 2, maxIterations: 20 },
+  bounds: {
+    maxHours: 2,
+    maxIterations: 20,
+    maxResumes: 12,
+    usageCapPercent: 90,
+    autoResumeOnReset: true
+  },
   definitionOfDone: 'Builds and tests pass; work committed on the run branch.',
+  verify: { command: null, maxAttempts: 2 },
+  permissionMode: 'acceptEdits',
   git: { branch: 'shift/{date}', allowPush: false, allowOutwardActions: false }
 };
 
@@ -81,8 +89,49 @@ function cmdStop() {
   console.log('shift will stop cleanly after the current bin.');
 }
 
+// v2: headless outer loop — keeps spawning claude until the engine finalizes,
+// a bound trips, or (on a rate-limit wall) it waits for the window to reopen.
+async function cmdRun() {
+  const cwd = process.cwd();
+  const dir = path.join(cwd, '.shift');
+  if (!fs.existsSync(path.join(dir, 'state.json'))) {
+    console.log('No active run. Run `shift start` first.');
+    process.exit(1);
+  }
+  const config = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'));
+  const mode = config.permissionMode || 'acceptEdits';
+  const { runLoop } = require('../lib/run-loop.cjs');
+  const { readUsageCache } = require('../lib/usage.cjs');
+
+  // Clear any stale summary so finalized() reflects THIS run.
+  try { fs.unlinkSync(path.join(dir, 'summary.md')); } catch { /* none */ }
+
+  let first = true;
+  const effects = {
+    now: () => Date.now(),
+    loadState: () => loadState(dir),
+    readUsage: () => readUsageCache(dir),
+    log: (m) => console.log(`[shift] ${m}`),
+    finalized: () => fs.existsSync(path.join(dir, 'summary.md')),
+    sleepUntil: (ms) => new Promise(r => setTimeout(r, Math.max(0, ms - Date.now()))),
+    spawn: () => {
+      const args = ['-p', '--permission-mode', mode];
+      if (first) { args.push('begin the shift'); first = false; }
+      else { args.push('--continue', 'continue the shift'); }
+      return cp.spawnSync('claude', args, {
+        cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024
+      });
+    }
+  };
+
+  const result = await runLoop({ config, effects });
+  console.log(`[shift] stopped: ${result.reason} (after ${result.spawns} spawn(s))`);
+  console.log(`[shift] review: ${path.join(dir, 'summary.md')}`);
+}
+
 const [, , sub, ...rest] = process.argv;
 if (sub === 'start') cmdStart(rest);
 else if (sub === 'status') cmdStatus();
 else if (sub === 'stop') cmdStop();
-else { console.log('usage: shift <start|status|stop> [--dry-run]'); process.exit(1); }
+else if (sub === 'run') cmdRun().catch(e => { console.error(e); process.exit(1); });
+else { console.log('usage: shift <start|run|status|stop> [--dry-run]'); process.exit(1); }

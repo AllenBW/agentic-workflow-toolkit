@@ -25,3 +25,14 @@ test('iterations checked before time', () => {
   const cfg = { bounds: { maxHours: 1, maxIterations: 1 } };
   assert.match(evaluateBounds({ ...base, iterations: 1 }, cfg, t0 + 3_600_001).reason, /max iterations/);
 });
+
+test('terminates on usage cap when usage is known', () => {
+  const cfg = { bounds: { maxHours: 8, usageCapPercent: 90 } };
+  assert.match(evaluateBounds(base, cfg, t0 + 1000, 92).reason, /usage cap/);
+});
+
+test('usage cap is ignored when usage is unknown', () => {
+  const cfg = { bounds: { maxHours: 8, usageCapPercent: 90 } };
+  assert.equal(evaluateBounds(base, cfg, t0 + 1000, undefined), null);
+  assert.equal(evaluateBounds(base, cfg, t0 + 1000, null), null);
+});

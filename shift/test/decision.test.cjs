@@ -36,3 +36,11 @@ test('a bound (time box) allows stop even with pending work', () => {
   assert.equal(r.action, 'allow');
   assert.match(r.reason, /time box/);
 });
+
+test('usage cap allows stop even with pending work', () => {
+  const bins = [{ id: 'b', status: 'pending', text: 'x' }];
+  const capCfg = { bounds: { maxHours: 8, usageCapPercent: 90 }, definitionOfDone: 'd', git: {} };
+  const r = decide({ bins, state, config: capCfg, now: t0, usagePercent: 95, killSwitch: false });
+  assert.equal(r.action, 'allow');
+  assert.match(r.reason, /usage cap/);
+});
