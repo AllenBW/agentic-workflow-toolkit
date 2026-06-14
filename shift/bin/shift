@@ -1,0 +1,88 @@
+#!/usr/bin/env node
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const cp = require('node:child_process');
+const { discoverBins } = require('../lib/discovery.cjs');
+const { initState, saveState, loadState, mergeDiscovered } = require('../lib/state.cjs');
+
+function isoStamp(d) { return d.toISOString().replace(/[:.]/g, '-').slice(0, 19); }
+function dateStr(d) { return d.toISOString().slice(0, 10); }
+
+const DEFAULT_CONFIG = {
+  sources: [{ path: 'queue', kind: 'briefs' }],
+  bounds: { maxHours: 2, maxIterations: 20 },
+  definitionOfDone: 'Builds and tests pass; work committed on the run branch.',
+  git: { branch: 'shift/{date}', allowPush: false, allowOutwardActions: false }
+};
+
+function ensureBranch(cwd, branch) {
+  // execFileSync with an argument array — no shell, so a branch name from config
+  // can't inject shell metacharacters.
+  for (const args of [
+    ['switch', '-c', branch], ['switch', branch],
+    ['checkout', '-b', branch], ['checkout', branch]
+  ]) {
+    try { cp.execFileSync('git', args, { cwd, stdio: 'ignore' }); return true; } catch { /* try next */ }
+  }
+  return false;
+}
+
+function cmdStart(args) {
+  const cwd = process.cwd();
+  const dir = path.join(cwd, '.shift');
+  const now = new Date();
+  const dryRun = args.includes('--dry-run');
+
+  let config = DEFAULT_CONFIG;
+  const cfgFile = path.join(dir, 'config.json');
+  if (fs.existsSync(cfgFile)) {
+    config = { ...DEFAULT_CONFIG, ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')) };
+  }
+  const branch = (config.git.branch || 'shift/{date}').replace('{date}', dateStr(now));
+  const discovered = discoverBins(config.sources, cwd);
+
+  if (dryRun) {
+    console.log('shift dry-run');
+    console.log(`branch: ${branch}`);
+    console.log(`bounds: ${JSON.stringify(config.bounds)}`);
+    console.log(`queue (${discovered.length}):`);
+    discovered.forEach((b, i) => console.log(`  ${i + 1}. ${b.id} [${b.kind}]`));
+    return;
+  }
+
+  fs.mkdirSync(dir, { recursive: true });
+  if (fs.existsSync(path.join(dir, 'STOP'))) fs.unlinkSync(path.join(dir, 'STOP'));
+  fs.writeFileSync(cfgFile, JSON.stringify(config, null, 2));
+  let state = initState({ runId: isoStamp(now), startedAt: now.toISOString(), branch });
+  state = mergeDiscovered(state, discovered);
+  saveState(dir, state);
+  fs.writeFileSync(path.join(dir, 'log.md'), `# shift log — ${state.runId}\n`);
+
+  if (!ensureBranch(cwd, branch)) {
+    console.log(`warning: could not create/switch to branch ${branch} (is this a git repo?)`);
+  }
+
+  console.log(`shift started: ${discovered.length} bins on branch ${branch}`);
+  console.log('Now open Claude Code in this repo and say: "begin the shift".');
+}
+
+function cmdStatus() {
+  const state = loadState(path.join(process.cwd(), '.shift'));
+  const c = s => state.bins.filter(b => b.status === s).length;
+  console.log(`run ${state.runId} · branch ${state.branch} · iter ${state.iterations}`);
+  console.log(`bins: ${c('done')} done · ${c('blocked')} blocked · ${c('pending')} pending`);
+}
+
+function cmdStop() {
+  const dir = path.join(process.cwd(), '.shift');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'STOP'), '');
+  console.log('shift will stop cleanly after the current bin.');
+}
+
+const [, , sub, ...rest] = process.argv;
+if (sub === 'start') cmdStart(rest);
+else if (sub === 'status') cmdStatus();
+else if (sub === 'stop') cmdStop();
+else { console.log('usage: shift <start|status|stop> [--dry-run]'); process.exit(1); }

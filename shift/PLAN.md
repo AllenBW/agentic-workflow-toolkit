@@ -1018,3 +1018,17 @@ Re-run with `maxIterations: 1`; confirm the run ends on "max iterations" with pe
 - **Testing strategy (unit pure modules + integration hook/CLI + manual smoke + dry-run):** Tasks 1–7, 9. ✔
 - **No third-party deps:** all `node:` built-ins. ✔
 - **Known gaps (deferred, documented):** usage-cap data source and rate-limit termination signature → v2 (SPEC §9). Mid-bin early-stop accepted in v1, reviewer-caught; verify pass → v3.
+
+---
+
+## Implementation notes (as-built deviations)
+
+Built on branch `shift-v1`. The draft code blocks above are the design intent; these corrections were applied during implementation:
+
+- **`state.cjs` — carry `text` through the merge, strip it on save.** `mergeDiscovered` copies each bin's freshly-read `text` into the in-memory bin (the brief needs the body); `saveState` strips `text` before writing so `state.json` stays lean. Without this the fed-back brief had the instructions but not the task body — caught by the hook integration test, not the unit tests.
+- **Review fix #2 — `shift-stop.cjs` resolves the repo from the hook payload's `cwd`** (`input.cwd || process.cwd()`); a hook's process cwd isn't guaranteed to be the project root. Has a dedicated test.
+- **Review fix #3 — summary surfaces logged `Needs you:` lines**, not just blocked bins; `brief.cjs` documents the `Needs you: <detail>` convention. Has a test.
+- **Security — `bin/shift` uses `execFileSync('git', [...args])`** (argument array, no shell) for branch ops, so a config-supplied branch name can't inject shell metacharacters; added `git checkout` fallbacks for Git < 2.23.
+- **`package.json` — `"test": "node --test"`** (Node ≥18 auto-discovery; a bare `test/` arg isn't accepted) and `"engines": { "node": ">=18" }`.
+
+All 28 `shift` tests + 7 `code-status-bar` tests pass; `install.sh` verified end-to-end.
