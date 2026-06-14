@@ -1032,3 +1032,14 @@ Built on branch `shift-v1`. The draft code blocks above are the design intent; t
 - **`package.json` — `"test": "node --test"`** (Node ≥18 auto-discovery; a bare `test/` arg isn't accepted) and `"engines": { "node": ">=18" }`.
 
 All 28 `shift` tests + 7 `code-status-bar` tests pass; `install.sh` verified end-to-end.
+
+---
+
+## v2 + v3 (built on the same branch)
+
+Added after v1, same TDD discipline (52 `shift` tests total). See SPEC §13 for the design decisions.
+
+- **v3 verify gate** — `lib/verify.cjs` (injectable exec) + a gate in the Stop hook: a bin passes only if `verify.command` exits 0; failures re-feed the bin with the output up to `verify.maxAttempts`, then block it. Tests: `verify.test.cjs` + hook gate cases.
+- **v2 usage cap** — `lib/usage.cjs` caches the hook payload's `rate_limits` to `.shift/usage.json`; `evaluateBounds` gains a `usagePercent` arg (cap on weekly %); the hook reads it from the payload and degrades gracefully when absent. Tests: `usage.test.cjs` + bounds/decision/hook cases.
+- **v2 headless runner** — `lib/outcome.cjs` (classify a spawn: completed / rate_limited / error, inferring rate-limit from cached usage since the exit signature is undocumented) + `lib/run-loop.cjs` (pure outer loop with injected effects: bounds, max-resumes backstop, wait-until-reset auto-resume) + `bin/shift run` (thin real-effects wiring). Tests: `outcome.test.cjs`, `run-loop.test.cjs`.
+- **Security** — `lib/verify.cjs` uses `spawnSync(command, { shell: true })` with the whole user-config command (not interpolated); documented inline.

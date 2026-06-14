@@ -1,23 +1,27 @@
 # shift
 
-Autonomous work-queue runner for **Claude Code** — module 2 of the [Agentic Workflow Toolkit](../). Pre-load bins of work, leave, and `shift` keeps Claude working through them past natural stop points, using its best judgment, until the queue is empty or a bound is hit. You review the output at the end.
+Autonomous work-queue runner for **Claude Code** — module 2 of the [Agentic Workflow Toolkit](../). Pre-load bins of work, leave, and `shift` keeps Claude working through them past natural stop points, using its best judgment, until the queue is empty or a bound is hit — surviving the 5-hour rate-limit wall by waiting for the window to reopen. You review the output at the end.
 
-> **This is v1** — the intra-session engine (a Stop hook). It keeps a *running* session grinding the queue, bounded by a time box + max iterations. Surviving the 5-hour rate-limit wall (auto-resume) and a usage cap are **v2**. See [SPEC.md](./SPEC.md) and [PLAN.md](./PLAN.md).
+See [SPEC.md](./SPEC.md) and [PLAN.md](./PLAN.md) for the design.
 
 ## How it works
 
-You drop work into source folders (hand-written briefs and/or plugin-generated plans). `shift start` discovers them, records a run in `.shift/`, and creates a `shift/<date>` branch. You open Claude Code and say "begin the shift." From then on, a **Stop hook** runs each time the agent would stop: it marks the finished bin done, picks the next pending bin, and feeds it back as the next instruction — so the agent keeps going. When the queue drains (or a bound trips, or you hit the kill switch), it lets the session stop and writes `.shift/summary.md`.
+You drop work into source folders — hand-written briefs and/or plugin-generated plans (e.g. Superpowers' plans dir). `shift start` discovers them, records a run in `.shift/`, and creates a `shift/<date>` branch. Then:
 
-The hook is safe to register globally: it no-ops in any repo that isn't an active `shift` run.
+- **Keep-going engine (Stop hook).** Each time the agent would stop, the hook marks the finished bin done, picks the next pending one, and feeds it back as the next instruction — so the session keeps working. When the queue drains (or a bound trips, or the kill switch is set) it lets the session stop and writes `.shift/summary.md`.
+- **Verify gate.** If you set a `verify.command`, each bin must pass it (e.g. `npm test`) before it counts as done; failures re-feed the bin with the output (up to `maxAttempts`), then mark it blocked. This catches "looked done but wasn't."
+- **All-day runner (`shift run`).** A headless outer loop that spawns Claude, lets the engine grind, and — when a spawn dies on the rate-limit wall — waits until the window resets and resumes. Bounded by wall-clock, max iterations, a usage cap, and a resume backstop.
+
+The hook is safe to register globally: it no-ops in any repo that isn't an active `shift` run, and resolves the repo from the hook payload's `cwd`.
 
 ## Safety model
 
-Full best-judgment autonomy on reversible, in-worktree work. By default it will **not** push, publish, send externally, or delete outside the worktree — it does the preparable part and records a `Needs you:` line instead, which the summary collects. All work lands on the `shift/<date>` branch, so review is a clean diff. Every decision is logged. Hard stops: time box, max iterations, and a kill switch (`shift stop`).
+Full best-judgment autonomy on reversible, in-worktree work. By default it will **not** push, publish, send externally, or delete outside the worktree — it does the preparable part and records a `Needs you:` line, which the summary collects. All work lands on the `shift/<date>` branch, so review is a clean diff. Every decision is logged. Hard stops: time box, max iterations, usage cap, kill switch (`shift stop`).
 
 ## Install
 
 1. Get the files (clone the toolkit, or copy the `shift/` folder).
-2. Register the Stop hook **once** in `~/.claude/settings.json`:
+2. Register the Stop hook **once** in `~/.claude/settings.json` (safe globally — no-ops outside an active run):
 
 ```json
 {
@@ -31,7 +35,7 @@ Full best-judgment autonomy on reversible, in-worktree work. By default it will 
 }
 ```
 
-> Verify the exact hook schema against the current Claude Code hooks docs. The engine only needs "block + feed `reason` back" and the `stop_hook_active` re-entry flag, and it resolves the repo from the hook payload's `cwd`.
+> Verify the hook schema against the current Claude Code hooks docs. The engine needs only: "block + feed `reason` back", the `stop_hook_active` flag, the payload `cwd`, and (for the usage cap / auto-resume) the payload `rate_limits`.
 
 3. (Optional) put `shift/bin/shift` on your PATH.
 
@@ -42,12 +46,21 @@ cd your-repo
 mkdir queue && $EDITOR queue/01-first-task.md     # one brief per file
 shift start --dry-run                              # preview the queue, branch, bounds
 shift start                                        # init run + create shift/<date> branch
-# open Claude Code here and say: "begin the shift"
-shift status                                       # check progress anytime
-shift stop                                         # stop cleanly after the current bin
 ```
 
-Point at plan folders too (e.g. Superpowers output) by editing `.shift/config.json`:
+Then either:
+
+- **Interactive:** open Claude Code in the repo and say *"begin the shift"* — the Stop hook drives it while you're away (within this session).
+- **All-day / unattended:** `shift run` — the headless loop drives Claude, survives rate-limit resets, and stops on a bound.
+
+```bash
+shift status     # progress anytime
+shift stop       # stop cleanly after the current bin
+```
+
+When it ends, read `.shift/summary.md` (bins done/blocked + a "Needs you" section) and review the `shift/<date>` branch.
+
+## Configure (`.shift/config.json`)
 
 ```json
 {
@@ -55,18 +68,37 @@ Point at plan folders too (e.g. Superpowers output) by editing `.shift/config.js
     { "path": "queue", "kind": "briefs" },
     { "path": "docs/superpowers/plans", "kind": "plans" }
   ],
-  "bounds": { "maxHours": 4, "maxIterations": 30 },
+  "bounds": {
+    "maxHours": 4,
+    "maxIterations": 30,
+    "maxResumes": 12,
+    "usageCapPercent": 90,
+    "autoResumeOnReset": true
+  },
   "definitionOfDone": "Builds and tests pass; work committed on the run branch.",
+  "verify": { "command": "npm test", "maxAttempts": 2 },
+  "permissionMode": "acceptEdits",
   "git": { "branch": "shift/{date}", "allowPush": false, "allowOutwardActions": false }
 }
 ```
 
-When the run ends, read `.shift/summary.md` (it lists bins done/blocked and a "Needs you" section), then review the `shift/<date>` branch.
+- **`usageCapPercent`** — stop when weekly usage reaches this (read from the hook payload's `rate_limits`; skipped when that data is absent, e.g. non-Pro/Max).
+- **`autoResumeOnReset`** — on a rate-limit wall, `shift run` waits for the 5-hour window to reopen and resumes (never past the time box).
+- **`verify.command`** — per-bin acceptance gate; `null` disables it.
+
+### Permissions for unattended runs
+
+`shift run` invokes `claude -p --permission-mode <permissionMode>`. `acceptEdits` (the default) auto-approves file edits but **other tools (e.g. Bash) can still prompt — and a headless run can't answer prompts.** For real unattended work that runs tests/commands, either:
+
+- pre-allow the tools the work needs via `permissions.allow` in your Claude settings and set `"permissionMode": "dontAsk"`, or
+- set `"permissionMode": "bypassPermissions"` (broadest; rely on the branch-only / no-push safety model and bounds).
+
+Pick the narrowest mode that lets the work actually proceed.
 
 ## Develop
 
 ```bash
-cd shift && npm test     # node --test, no dependencies
+cd shift && npm test     # node --test, zero dependencies
 ```
 
-Pure logic lives in `lib/` (discovery, state, bounds, brief, decision) and is unit-tested; `hooks/shift-stop.cjs` is the thin I/O shell, integration-tested by driving it with crafted hook input.
+Pure logic lives in `lib/` (discovery, state, bounds, brief, decision, verify, usage, outcome, run-loop) and is unit-tested; `hooks/shift-stop.cjs` (the keep-going engine) and the `shift run` loop are integration-tested by driving them with injected effects / crafted hook input.
