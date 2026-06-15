@@ -19,8 +19,11 @@ Transparency isn't a feature bolted on the side; for agentic coding it's the who
 | Module | What it is | Targets |
 |---|---|---|
 | [**code-status-bar**](./code-status-bar) | A status line that shows usage limits, cost, context health, and git/worktree state at a glance | Claude Code (via [ccstatusline](https://github.com/sirmalloc/ccstatusline)) |
+| [**shift**](./shift) | An autonomous work-queue runner: pre-load bins of work, leave, and it keeps the agent grinding through them — past natural stop points and across rate-limit resets — leaving every decision logged and every change a reviewable commit | Claude Code (Stop hook + headless `-p`) |
 
 > **New here? Start with the [Code Status Bar](./code-status-bar).** It installs as a portable, zero-dependency default, or an [opt-in colored variant](./code-status-bar#color--static-by-default-status-driven-by-opt-in) that recolors the usage bars **green → yellow → red** as you approach each limit — so you *feel* a wall coming before you read a single number. You could build it by hand in ccstatusline's editor; this is that setup already done — one command, no configuration, and still fully editable.
+
+> **Going heads-down?** [**shift**](./shift) turns an unattended run — the *least* transparent mode there is — into an honest paper trail: you trade real-time steering for a `shift/<date>` branch, a decision log, and a "here's what I did and what needs you" summary. One command wires the hook; the safety model keeps the work on a branch and off your remotes.
 
 More to come. Each module is self-contained, declares which agent it targets, and explains *why* every piece earns its place — because justifying the real estate is part of the philosophy.
 

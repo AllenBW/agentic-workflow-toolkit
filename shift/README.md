@@ -20,24 +20,26 @@ Full best-judgment autonomy on reversible, in-worktree work. By default it will 
 
 ## Install
 
-1. Get the files (clone the toolkit, or copy the `shift/` folder).
-2. Register the Stop hook **once** in `~/.claude/settings.json` (safe globally — no-ops outside an active run):
+1. Clone the toolkit (the hook runs from these files by absolute path, so it installs locally — no `curl | bash`).
+2. Wire the Stop hook into `~/.claude/settings.json` — one command, idempotent:
 
-```json
-{
-  "hooks": {
-    "Stop": [
-      { "matcher": "", "hooks": [
-        { "type": "command", "command": "node /ABSOLUTE/PATH/TO/shift/hooks/shift-stop.cjs" }
-      ] }
-    ]
-  }
-}
+```bash
+bash shift/install.sh
 ```
 
-> Verify the hook schema against the current Claude Code hooks docs. The engine needs only: "block + feed `reason` back", the `stop_hook_active` flag, the payload `cwd`, and (for the usage cap / auto-resume) the payload `rate_limits`.
+It merges the entry below (safe globally — the hook no-ops in any repo without an active `.shift/` run), backs up any existing settings first, and never duplicates on re-run — re-running after a `git pull` or a repo move just updates the path:
 
-3. (Optional) put `shift/bin/shift` on your PATH.
+```json
+{ "hooks": { "Stop": [
+  { "matcher": "", "hooks": [
+    { "type": "command", "command": "node /ABSOLUTE/PATH/TO/shift/hooks/shift-stop.cjs" }
+  ] }
+] } }
+```
+
+> **Hook contract (verified against the [Claude Code hooks docs](https://code.claude.com/docs/en/hooks)).** The Stop hook returns `{"decision":"block","reason":…}` to keep the session going — the `reason` becomes the next instruction — and omits `decision` (or exits 0) to allow the stop. The usage cap and `shift run` auto-resume read the hook payload's `rate_limits` when present and **skip cleanly when it's absent** (e.g. non-Pro/Max), so the engine never depends on it.
+
+3. (Optional) put `shift/bin/shift` on your PATH — the installer prints the `ln -s` command.
 
 ## Use
 
