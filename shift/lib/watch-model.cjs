@@ -235,4 +235,18 @@ function renderLine(model, opts = {}) {
   return `${flag} shift ${c(ANSI.bold, model.counts.done + '/' + model.counts.total)} ${c(ANSI.dim, model.elapsedMin + 'm')} ${c(ANSI.dim, '↑' + fmtTok(model.outputTokens))}${needs}`;
 }
 
-module.exports = { buildModel, renderFrame, renderDetail, renderHistory, renderLine, fmtDur, fmtTok };
+// Pure selection arithmetic for the `shift watch` TUI (n = bin count). Extracted so the
+// off-by-one-prone wrap/clamp cases are unit-testable without a TTY.
+function moveSelection(sel, n, dir) {
+  if (n <= 0) return -1;
+  if (dir === 'up') return (sel <= 0 ? n : sel) - 1; // wrap to the last bin
+  if (dir === 'down') return (sel + 1) % n;          // wrap to the first
+  return sel;
+}
+function clampSelection(sel, n) { // keep a selection valid when the bin list grows/shrinks
+  if (n <= 0) return -1;
+  if (sel < 0) return 0;
+  return sel >= n ? n - 1 : sel;
+}
+
+module.exports = { buildModel, renderFrame, renderDetail, renderHistory, renderLine, fmtDur, fmtTok, moveSelection, clampSelection };

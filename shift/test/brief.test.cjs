@@ -30,6 +30,16 @@ test('always explains decision logging, the Needs-you convention, and blocker fl
   assert.match(out, /blocked\.jsonl/);
 });
 
+test('the forbid-guard reflects each git flag combination independently', () => {
+  const pushOnly = renderBrief(bin, { git: { allowPush: false, allowOutwardActions: true } });
+  assert.match(pushOnly, /Do NOT push to any remote/);
+  assert.doesNotMatch(pushOnly, /publish, send to external/);
+
+  const outwardOnly = renderBrief(bin, { git: { allowPush: true, allowOutwardActions: false } });
+  assert.match(outwardOnly, /Do NOT publish, send to external/);
+  assert.doesNotMatch(outwardOnly, /push to any remote/);
+});
+
 test('guards .shift/ bookkeeping: append-only, never edit config.json (so the hook owns the run record)', () => {
   const out = renderBrief(bin, { git: {} });
   // state.json now lives out-of-repo (engineDir, store.cjs) and is beyond the agent's reach,

@@ -6,9 +6,20 @@ const os = require('node:os');
 const path = require('node:path');
 // Out-of-repo timeline base → tmp (fixtures have no timeline → per-bin falls back to state.bins).
 process.env.SHIFT_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'shift-wmbase-'));
-const { buildModel, renderFrame, renderDetail, renderHistory } = require('../lib/watch-model.cjs');
+const { buildModel, renderFrame, renderDetail, renderHistory, renderLine, moveSelection, clampSelection } = require('../lib/watch-model.cjs');
 const { aggregate } = require('../lib/history.cjs');
 const { engineDir } = require('../lib/store.cjs');
+const { appendEvent } = require('../lib/timeline.cjs');
+
+// A bare run: state in the engine dir, .shift/ for log; caller adds timeline/transcript.
+function bareRun(state) {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'shift-wm2-'));
+  const dir = path.join(cwd, '.shift');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(engineDir(cwd), 'state.json'), JSON.stringify(state));
+  fs.writeFileSync(path.join(dir, 'log.md'), '# log\n');
+  return { cwd, dir };
+}
 
 function fixture({ paused = false, currentBinId = 'queue/03-build.md' } = {}) {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'shift-watch-'));
@@ -119,4 +130,64 @@ test('renderHistory shows per-run rows and a totals footer', () => {
 
 test('renderHistory with no records is a friendly message', () => {
   assert.match(renderHistory([], aggregate([]), { color: false }), /No shift runs recorded/i);
+});
+
+test('buildModel derives per-bin + run tokens from the transcript when state has none', () => {
+  const { cwd, dir } = bareRun({
+    runId: 'r', startedAt: '2026-06-15T23:59:00.000Z', iterations: 1, branch: 'shift/x',
+    currentBinId: null, transcriptPath: path.join(/* set below */ os.tmpdir(), 'x'),
+    bins: [{ id: 'queue/01.md', status: 'done' }] // no tokens / no durationMs in state
+  });
+  const tpath = path.join(dir, 'transcript.jsonl');
+  fs.writeFileSync(tpath, JSON.stringify({ type: 'assistant', timestamp: '2026-06-16T00:01:00.000Z', message: { usage: { output_tokens: 4200, input_tokens: 10, cache_read_input_tokens: 5 } } }) + '\n');
+  // point state at the real transcript + lay down the timeline boundaries (keyed by cwd)
+  const sp = path.join(engineDir(cwd), 'state.json');
+  const s = JSON.parse(fs.readFileSync(sp, 'utf8')); s.transcriptPath = tpath; fs.writeFileSync(sp, JSON.stringify(s));
+  appendEvent(cwd, { t: '2026-06-16T00:00:00.000Z', event: 'start', id: 'queue/01.md' });
+  appendEvent(cwd, { t: '2026-06-16T00:02:00.000Z', event: 'finish', id: 'queue/01.md' });
+
+  const m = buildModel({ dir, now: Date.parse('2026-06-16T00:05:00.000Z') });
+  const b = m.bins.find(x => x.id === 'queue/01.md');
+  assert.equal(b.tokensOutput, 4200, 'per-bin tokens from the transcript window [start, finish)');
+  assert.equal(b.durationMs, 120000, 'runtime from the timeline window (2m)');
+  assert.equal(m.outputTokens, 4200, 'run output tokens from the transcript over [run start, now)');
+});
+
+test('buildModel gives the CURRENT bin an open window (start..now) for live runtime + tokens', () => {
+  const { cwd, dir } = bareRun({
+    runId: 'r', startedAt: '2026-06-16T00:00:00.000Z', iterations: 1, branch: 'shift/x',
+    currentBinId: 'queue/01.md', bins: [{ id: 'queue/01.md', status: 'pending' }]
+  });
+  const tpath = path.join(dir, 'transcript.jsonl');
+  fs.writeFileSync(tpath, JSON.stringify({ type: 'assistant', timestamp: '2026-06-16T00:03:00.000Z', message: { usage: { output_tokens: 900, input_tokens: 1 } } }) + '\n');
+  const sp = path.join(engineDir(cwd), 'state.json');
+  const s = JSON.parse(fs.readFileSync(sp, 'utf8')); s.transcriptPath = tpath; fs.writeFileSync(sp, JSON.stringify(s));
+  appendEvent(cwd, { t: '2026-06-16T00:00:00.000Z', event: 'start', id: 'queue/01.md' }); // started, not finished
+
+  const m = buildModel({ dir, now: Date.parse('2026-06-16T00:05:00.000Z') });
+  const b = m.bins.find(x => x.id === 'queue/01.md');
+  assert.equal(b.current, true);
+  assert.equal(b.durationMs, 300000, 'open window start..now = 5m');
+  assert.equal(b.tokensOutput, 900, 'tokens summed up to now (open window)');
+});
+
+test('buildModel reads finalized from .shift/summary.md while state lives out-of-repo', () => {
+  const dir = fixture();
+  fs.writeFileSync(path.join(dir, 'summary.md'), '# done\n');
+  const m = buildModel({ dir, now: Date.now() });
+  assert.equal(m.finalized, true);
+  assert.match(renderFrame(m, { color: false }), /finalized/);
+  assert.ok(renderLine(m, { color: false }).startsWith('●'));
+});
+
+test('moveSelection wraps; clampSelection keeps a selection valid as the list changes', () => {
+  assert.equal(moveSelection(0, 5, 'up'), 4);    // wrap to last
+  assert.equal(moveSelection(4, 5, 'down'), 0);  // wrap to first
+  assert.equal(moveSelection(2, 5, 'up'), 1);
+  assert.equal(moveSelection(2, 5, 'down'), 3);
+  assert.equal(moveSelection(0, 0, 'down'), -1); // no bins
+  assert.equal(clampSelection(4, 3), 2);         // list shrank
+  assert.equal(clampSelection(-1, 3), 0);
+  assert.equal(clampSelection(1, 3), 1);
+  assert.equal(clampSelection(2, 0), -1);        // empty
 });
