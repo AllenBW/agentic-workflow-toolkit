@@ -74,6 +74,7 @@ When it ends, read `.shift/summary.md` (bins done/blocked + a "Needs you" sectio
     "maxHours": 4,
     "maxIterations": 30,
     "maxResumes": 12,
+    "spawnTimeoutMinutes": 30,
     "usageCapPercent": 90,
     "autoResumeOnReset": true
   },
@@ -85,8 +86,12 @@ When it ends, read `.shift/summary.md` (bins done/blocked + a "Needs you" sectio
 ```
 
 - **`usageCapPercent`** — stop when weekly usage reaches this (read from the hook payload's `rate_limits`; skipped when that data is absent, e.g. non-Pro/Max).
-- **`autoResumeOnReset`** — on a rate-limit wall, `shift run` waits for the 5-hour window to reopen and resumes (never past the time box).
+- **`autoResumeOnReset`** — on a rate-limit wall, `shift run` waits for the 5-hour window to reopen and resumes (never past the time box). If the cached reset time is stale/in the past it stops cleanly rather than busy-spinning.
+- **`maxResumes`** — the runner's own backstop on the number of `claude` spawns (independent of the hook-maintained `maxIterations`/`maxHours`).
+- **`spawnTimeoutMinutes`** — hard per-spawn wall: a wedged `claude` is killed (SIGTERM) so it can't hang the runner. Default 30.
 - **`verify.command`** — per-bin acceptance gate; `null` disables it.
+
+> A headless `shift run` grades success on `.shift/summary.md` (written only when the engine finalizes), not on the exit line: a `claude -p` that exits without finalizing is reported as *"no summary written — did NOT finalize"* with a hint to check the hook wiring, never as a false success.
 
 ### Permissions for unattended runs
 

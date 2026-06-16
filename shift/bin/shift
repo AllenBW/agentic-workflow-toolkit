@@ -15,6 +15,7 @@ const DEFAULT_CONFIG = {
     maxHours: 2,
     maxIterations: 20,
     maxResumes: 12,
+    spawnTimeoutMinutes: 30,
     usageCapPercent: 90,
     autoResumeOnReset: true
   },
@@ -103,6 +104,18 @@ async function cmdRun() {
   const { runLoop } = require('../lib/run-loop.cjs');
   const { readUsageCache } = require('../lib/usage.cjs');
 
+  // A headless `-p` run cannot answer permission prompts. Only bypassPermissions/dontAsk
+  // auto-approve tool calls like Bash(git commit) — anything else stalls or denies on the
+  // first command the work needs (the engine then exits without finalizing).
+  if (!['bypassPermissions', 'dontAsk'].includes(mode)) {
+    console.log(`[shift] warning: permissionMode "${mode}" prompts on tools like Bash, which a headless run can't answer.`);
+    console.log('[shift]          set "permissionMode":"dontAsk" (+ permissions.allow) or "bypassPermissions" in .shift/config.json.');
+  }
+
+  // Hard per-spawn timeout so a wedged `claude` can't hang the runner forever
+  // (spawnSync is blocking; the loop's time bounds can't interrupt it).
+  const spawnTimeoutMs = (((config.bounds && config.bounds.spawnTimeoutMinutes) || 30)) * 60_000;
+
   // Clear any stale summary so finalized() reflects THIS run.
   try { fs.unlinkSync(path.join(dir, 'summary.md')); } catch { /* none */ }
 
@@ -118,15 +131,25 @@ async function cmdRun() {
       const args = ['-p', '--permission-mode', mode];
       if (first) { args.push('begin the shift'); first = false; }
       else { args.push('--continue', 'continue the shift'); }
-      return cp.spawnSync('claude', args, {
-        cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024
+      const res = cp.spawnSync('claude', args, {
+        cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+        maxBuffer: 64 * 1024 * 1024, timeout: spawnTimeoutMs, killSignal: 'SIGTERM'
       });
+      // Surface launch failures (claude not on PATH → ENOENT) and timeouts/kills —
+      // otherwise they classify as a bare 'error' with no diagnostics.
+      if (res && res.error) console.log(`[shift] spawn failed to run claude: ${res.error.message}`);
+      if (res && res.signal) console.log(`[shift] spawn killed by signal ${res.signal} (timeout ${spawnTimeoutMs / 60000}min?)`);
+      return res;
     }
   };
 
   const result = await runLoop({ config, effects });
   console.log(`[shift] stopped: ${result.reason} (after ${result.spawns} spawn(s))`);
-  console.log(`[shift] review: ${path.join(dir, 'summary.md')}`);
+  if (effects.finalized()) {
+    console.log(`[shift] review: ${path.join(dir, 'summary.md')}`);
+  } else {
+    console.log('[shift] no summary written — the run did NOT finalize; see the [shift] lines above. Nothing was committed by the engine.');
+  }
 }
 
 const [, , sub, ...rest] = process.argv;

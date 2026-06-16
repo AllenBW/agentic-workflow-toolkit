@@ -37,6 +37,10 @@ async function runLoop({ config, effects }) {
       const resetAt = usage && typeof usage.sessionResetAt === 'number' ? usage.sessionResetAt * 1000 : null;
       if (!resetAt) return { reason: 'rate limited but no reset time available — stopping', spawns };
       const until = resetAt + RESET_BUFFER_MS;
+      // The cached reset time is only refreshed by the Stop hook; a wall that kills the
+      // session before any hook fires leaves it stale. If it's already in the past,
+      // sleepUntil(past) returns instantly and we'd re-spawn in a tight loop — stop instead.
+      if (until <= now) return { reason: 'rate limited but the reset window is stale/past — stopping', spawns };
       if (typeof bounds.maxHours === 'number') {
         const deadline = Date.parse(state.startedAt) + bounds.maxHours * 3_600_000;
         if (until >= deadline) return { reason: 'rate limited; reset is past the time box — stopping', spawns };
@@ -47,16 +51,30 @@ async function runLoop({ config, effects }) {
       continue;
     }
 
+    const iterBefore = (state && typeof state.iterations === 'number') ? state.iterations : 0;
     spawns += 1;
     effects.log(`spawn #${spawns}: running claude`);
     const res = effects.spawn(spawns);
-    lastOutcome = classifyOutcome({
+    const outcome = classifyOutcome({
       finalized: effects.finalized(),
       code: res ? res.status : 1,
       stderr: res ? res.stderr : '',
       usage: effects.readUsage(),
       now: effects.now()
     });
+
+    // 'incomplete' = claude exited cleanly but the engine never finalized. If it advanced
+    // the queue (partial progress), resume to finish it; if it advanced nothing, resuming
+    // won't help — stop with a diagnostic rather than spin or report a false-green.
+    if (outcome === 'incomplete') {
+      const after = effects.loadState();
+      const iterAfter = (after && typeof after.iterations === 'number') ? after.iterations : iterBefore;
+      if (iterAfter <= iterBefore) {
+        return { reason: 'claude exited without finalizing and made no progress — is the Stop hook wired? (nothing committed)', spawns };
+      }
+      effects.log('claude exited mid-queue with progress — resuming');
+    }
+    lastOutcome = outcome;
   }
 }
 

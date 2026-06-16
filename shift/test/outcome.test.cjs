@@ -10,8 +10,15 @@ test('finalized run is completed', () => {
   assert.equal(classifyOutcome({ finalized: true, code: 1, now: nowMs }), 'completed');
 });
 
-test('clean exit (code 0) is completed', () => {
-  assert.equal(classifyOutcome({ finalized: false, code: 0, now: nowMs }), 'completed');
+test('finalized wins even on a clean exit', () => {
+  assert.equal(classifyOutcome({ finalized: true, code: 0, now: nowMs }), 'completed');
+});
+
+test('clean exit (code 0) WITHOUT finalize is incomplete, not completed', () => {
+  // The engine writes summary.md (finalized) on a real drain; a code-0 exit without
+  // it means claude stopped without the engine finalizing (e.g. hook not wired, or a
+  // partial stop). That must NOT read as success — it is 'incomplete' (resume/stop).
+  assert.equal(classifyOutcome({ finalized: false, code: 0, now: nowMs }), 'incomplete');
 });
 
 test('nonzero + near-limit usage + future reset is rate_limited', () => {
