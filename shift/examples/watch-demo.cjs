@@ -14,20 +14,26 @@ const SHIFT = path.resolve(__dirname, '..');
 const { buildModel, renderFrame, renderDetail, renderHistory } = require(path.join(SHIFT, 'lib', 'watch-model.cjs'));
 const { readHistory, aggregate } = require(path.join(SHIFT, 'lib', 'history.cjs'));
 const { requestSkip, requestStop } = require(path.join(SHIFT, 'lib', 'control.cjs'));
+const { engineDir } = require(path.join(SHIFT, 'lib', 'store.cjs'));
 const HOOK = path.join(SHIFT, 'hooks', 'shift-stop.cjs');
 
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'shift-watch-demo-'));
 const dir = path.join(cwd, '.shift');
+// Authoritative engine state (state.json, history, timeline) lives OUT of the repo,
+// keyed by the canonical cwd — same dir the hook writes and watch/history read.
+const edir = engineDir(cwd);
 fs.mkdirSync(path.join(cwd, 'queue'), { recursive: true });
 fs.mkdirSync(dir, { recursive: true });
 for (const [n, t] of [['01-build.md', 'build the thing'], ['02-flaky.md', 'flaky task'], ['03-docs.md', 'write docs']]) {
   fs.writeFileSync(path.join(cwd, 'queue', n), t);
 }
-fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({
+const config = JSON.stringify({
   sources: [{ path: 'queue', kind: 'briefs' }],
   bounds: { maxHours: 24, maxIterations: 10 }, definitionOfDone: 'done', git: {}
-}));
-fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({
+});
+fs.writeFileSync(path.join(dir, 'config.json'), config);          // user-editable copy in the repo
+fs.writeFileSync(path.join(edir, 'config.json'), config);         // engine snapshot (what cmdStart does)
+fs.writeFileSync(path.join(edir, 'state.json'), JSON.stringify({  // engine-owned, out of the agent's reach
   runId: 'demo', startedAt: new Date(Date.now() - 5 * 60000).toISOString(),
   iterations: 0, branch: 'shift/demo', currentBinId: null, bins: []
 }));
@@ -55,5 +61,5 @@ process.stdout.write('\n\x1b[1m=== ⏎ details on bin 01 (drill-down) ===\x1b[0m
 process.stdout.write(renderDetail(buildModel({ dir, now: Date.now() }), 0, { width: 78, color: true }));
 
 process.stdout.write('\n\x1b[1m=== shift history (work record across runs) ===\x1b[0m\n');
-process.stdout.write(renderHistory(readHistory(dir), aggregate(readHistory(dir)), { color: true }));
+process.stdout.write(renderHistory(readHistory(edir), aggregate(readHistory(edir)), { color: true }));
 process.stdout.write(`\n(throwaway repo: ${cwd})\n`);

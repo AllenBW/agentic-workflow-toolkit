@@ -30,8 +30,11 @@ test('always explains decision logging, the Needs-you convention, and blocker fl
   assert.match(out, /blocked\.jsonl/);
 });
 
-test('guards .shift/ bookkeeping: append-only, never edit state.json (so the hook owns per-bin stats)', () => {
+test('guards .shift/ bookkeeping: append-only, never edit config.json (so the hook owns the run record)', () => {
   const out = renderBrief(bin, { git: {} });
-  assert.match(out, /Never edit.*state\.json/i);
+  // state.json now lives out-of-repo (engineDir, store.cjs) and is beyond the agent's reach,
+  // so the prompt no longer names it; it guards the repo-side surface the agent CAN touch.
+  assert.match(out, /Never edit.*config\.json/i);
+  assert.doesNotMatch(out, /state\.json/);
   assert.match(out, /append/i);
 });
