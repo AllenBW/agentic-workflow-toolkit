@@ -109,7 +109,7 @@ function cmdStatus(args) {
 // (a status bar) can't take input, so this is the interactive control surface.
 function cmdWatch() {
   const dir = path.join(process.cwd(), '.shift');
-  const { buildModel, renderFrame, renderDetail } = require('../lib/watch-model.cjs');
+  const { buildModel, renderFrame, renderDetail, moveSelection, clampSelection } = require('../lib/watch-model.cjs');
   const { setPause, isPaused, requestSkip, requestStop } = require('../lib/control.cjs');
   const out = process.stdout;
   const interactive = !!(process.stdin.isTTY && out.isTTY);
@@ -122,7 +122,7 @@ function cmdWatch() {
       model = buildModel({ dir, now: Date.now() });
       const n = (model.bins || []).length;
       if (selected < 0 && n) selected = Math.max(0, model.bins.findIndex(b => b.current));
-      if (selected >= n) selected = n - 1; // bins can change between draws — clamp
+      else selected = clampSelection(selected, n); // bins can change between draws — keep it valid
       const frame = (mode === 'detail' && selected >= 0)
         ? renderDetail(model, selected, { width: out.columns || 80, color: true })
         : renderFrame(model, { width: out.columns || 80, color: true, selectedIndex: selected });
@@ -153,9 +153,9 @@ function cmdWatch() {
     if (key === 'x' || key === '\x03') { // x / Ctrl-C
       cleanup(); out.write('\n[shift] watcher closed — the run keeps going.\n'); process.exit(0);
     } else if (key === '\x1b[A') {        // ↑ select up
-      if (n) selected = (selected <= 0 ? n : selected) - 1; draw();
+      selected = moveSelection(selected, n, 'up'); draw();
     } else if (key === '\x1b[B') {        // ↓ select down
-      if (n) selected = (selected + 1) % n; draw();
+      selected = moveSelection(selected, n, 'down'); draw();
     } else if (key === '\r' || key === '\n') { // ⏎ open detail
       if (selected >= 0) mode = 'detail'; draw();
     } else if (key === '\x1b') {          // esc back to list (lone Esc, not an arrow sequence)

@@ -198,6 +198,51 @@ test('history is append-only across runs and not duplicated by a stray extra sto
   assert.equal(hist.length, 1, 'no duplicate history record from a repeated finalize');
 });
 
+test('a planted repo-side .shift/state.json is ignored — the engine drives from out-of-repo state', () => {
+  const { cwd, dir } = setupRun();
+  // a confused/hostile agent writes a repo-side state.json claiming everything is done
+  fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({
+    runId: 'r', startedAt: new Date().toISOString(), iterations: 9, branch: 'shift/x',
+    currentBinId: null, bins: [{ id: 'queue/01.md', status: 'done' }, { id: 'queue/02.md', status: 'done' }]
+  }));
+  const r = runHook(cwd, { stop_hook_active: false });
+  assert.equal(r.decision, 'block');     // still blocks bin 1 from the real (engine-dir) state
+  assert.match(r.reason, /bin one/);
+});
+
+test('config falls back to the repo .shift/config.json when the engine snapshot is absent', () => {
+  const { cwd, dir, edir } = setupRun();
+  fs.unlinkSync(path.join(edir, 'config.json')); // no engine snapshot → must fall back to repo copy
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({
+    sources: [{ path: 'queue', kind: 'briefs' }], bounds: { maxHours: 24, maxIterations: 10 },
+    definitionOfDone: 'done', git: {}
+  }));
+  const r = runHook(cwd, { stop_hook_active: false });
+  assert.equal(r.decision, 'block');
+  assert.match(r.reason, /bin one/);
+});
+
+test('history per-bin tokens fall back to the transcript window when state.bins was clobbered', () => {
+  const { cwd, dir, edir } = setupRun();
+  const tpath = path.join(dir, 'transcript.jsonl');
+  const asst = (ts, out) => JSON.stringify({ type: 'assistant', timestamp: ts, message: { usage: { output_tokens: out, input_tokens: 1 } } });
+
+  runHook(cwd, { stop_hook_active: false, transcript_path: tpath }); // start bin 1
+  const started = readState(edir).bins.find(b => b.id === 'queue/01.md').startedAt;
+  fs.writeFileSync(tpath, asst(started, 700) + '\n');
+  runHook(cwd, { stop_hook_active: true, transcript_path: tpath });  // finish bin 1 (tokens=700), start bin 2
+
+  // simulate the agent clobbering state: strip every bin's recorded tokens
+  const s = readState(edir);
+  s.bins = s.bins.map(({ tokens, ...rest }) => rest);
+  fs.writeFileSync(path.join(edir, 'state.json'), JSON.stringify(s));
+
+  runHook(cwd, { stop_hook_active: true, transcript_path: tpath });  // finish bin 2, drain -> finalize
+  const hist = fs.readFileSync(path.join(edir, 'history.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+  const b1 = hist[0].perBin.find(p => p.id === 'queue/01.md');
+  assert.equal(b1.tokensOutput, 700, 'recovered from the timeline window + transcript, not from state.bins');
+});
+
 // ---- v2: usage cap + cache ----
 
 test('usage cap from the hook payload ends the run and caches usage', () => {
