@@ -12,9 +12,10 @@ function renderBrief(bin, config) {
     : '';
   return [
     'You are running unattended under `shift`. Complete the brief below end-to-end using your best judgment.',
-    'Do NOT ask questions — if you would normally ask, decide and record the decision in .shift/log.md.',
+    'Do NOT ask questions — if you would normally ask, decide and APPEND the decision as a line to .shift/log.md.',
     `Definition of done: ${dod}`,
     'When finished, commit your work on the current branch.',
+    '`.shift/` is shift\'s own run bookkeeping. The ONLY writes you may make under it are APPENDING a line to .shift/log.md or .shift/blocked.jsonl. Never edit, overwrite, or "tidy" .shift/state.json, .shift/config.json, .shift/summary.md, and never rewrite .shift/log.md — shift maintains those itself (run progress, per-bin runtime + tokens), and changing them corrupts the run record.',
     'Flag anything that needs the human (a deferred decision, an action you could not take) by appending a line to .shift/log.md as: "Needs you: <detail>" — these surface in the run summary.',
     'If a true blocker stops you from finishing this bin, append one line to .shift/blocked.jsonl: {"id":"<bin id>","note":"<reason>"} then stop.',
     guard,

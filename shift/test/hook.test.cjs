@@ -144,6 +144,47 @@ test('verify gate (failing) re-blocks the same bin with feedback, then blocks af
   assert.equal(s.bins.find(b => b.id === 'queue/01.md').status, 'blocked');
 });
 
+// ---- watch: per-bin tokens/runtime + work-record history ----
+
+test('records per-bin tokens + runtime from the transcript and appends a history record', () => {
+  const { cwd, dir } = setupRun();
+  const tpath = path.join(dir, 'transcript.jsonl');
+  const asst = (ts, output) => JSON.stringify({
+    type: 'assistant', timestamp: ts,
+    message: { role: 'assistant', usage: { output_tokens: output, input_tokens: 10, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }
+  });
+
+  runHook(cwd, { stop_hook_active: false, transcript_path: tpath }); // start bin 1
+  // Use bin 1's recorded startedAt as the message timestamp so it lands in [start, now).
+  const started = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'))
+    .bins.find(b => b.id === 'queue/01.md').startedAt;
+  assert.ok(started, 'bin 1 got a startedAt when it became current');
+  fs.writeFileSync(tpath, asst(started, 500) + '\n');
+
+  runHook(cwd, { stop_hook_active: true, transcript_path: tpath }); // finish bin 1, start bin 2
+  const b1 = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8')).bins.find(b => b.id === 'queue/01.md');
+  assert.equal(b1.status, 'done');
+  assert.equal(b1.tokens.output, 500, 'bin 1 output tokens attributed from the transcript window');
+  assert.equal(typeof b1.durationMs, 'number');
+
+  runHook(cwd, { stop_hook_active: true, transcript_path: tpath }); // finish bin 2, drain -> finalize
+  const hist = fs.readFileSync(path.join(dir, 'history.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(hist.length, 1, 'one history record appended on finalize');
+  assert.equal(hist[0].bins.done, 2);
+  assert.ok(hist[0].tokens.output >= 500, 'run output tokens recorded');
+  assert.equal(hist[0].perBin.length, 2);
+});
+
+test('history is append-only across runs and not duplicated by a stray extra stop', () => {
+  const { cwd, dir } = setupRun();
+  runHook(cwd, { stop_hook_active: false });
+  runHook(cwd, { stop_hook_active: true });
+  runHook(cwd, { stop_hook_active: true }); // drain -> finalize (appends record 1)
+  runHook(cwd, { stop_hook_active: true }); // stray extra stop -> summary already exists -> no 2nd append
+  const hist = fs.readFileSync(path.join(dir, 'history.jsonl'), 'utf8').trim().split('\n').filter(Boolean);
+  assert.equal(hist.length, 1, 'no duplicate history record from a repeated finalize');
+});
+
 // ---- v2: usage cap + cache ----
 
 test('usage cap from the hook payload ends the run and caches usage', () => {

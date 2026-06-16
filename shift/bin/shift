@@ -62,6 +62,7 @@ function cmdStart(args) {
 
   fs.mkdirSync(dir, { recursive: true });
   if (fs.existsSync(path.join(dir, 'STOP'))) fs.unlinkSync(path.join(dir, 'STOP'));
+  require('../lib/timeline.cjs').clearTimeline(dir); // fresh run → fresh boundary record
   fs.writeFileSync(cfgFile, JSON.stringify(config, null, 2));
   let state = initState({ runId: isoStamp(now), startedAt: now.toISOString(), branch });
   state = mergeDiscovered(state, discovered);
@@ -98,16 +99,23 @@ function cmdStatus(args) {
 // (a status bar) can't take input, so this is the interactive control surface.
 function cmdWatch() {
   const dir = path.join(process.cwd(), '.shift');
-  const { buildModel, renderFrame } = require('../lib/watch-model.cjs');
+  const { buildModel, renderFrame, renderDetail } = require('../lib/watch-model.cjs');
   const { setPause, isPaused, requestSkip, requestStop } = require('../lib/control.cjs');
   const out = process.stdout;
   const interactive = !!(process.stdin.isTTY && out.isTTY);
 
   let model;
+  let selected = -1;     // -1 = no selection yet; set to the current bin on first draw
+  let mode = 'list';     // 'list' | 'detail'
   const draw = () => {
     try { // a transient read/write error must never wedge the terminal — retry next tick
       model = buildModel({ dir, now: Date.now() });
-      const frame = renderFrame(model, { width: out.columns || 80, color: true });
+      const n = (model.bins || []).length;
+      if (selected < 0 && n) selected = Math.max(0, model.bins.findIndex(b => b.current));
+      if (selected >= n) selected = n - 1; // bins can change between draws — clamp
+      const frame = (mode === 'detail' && selected >= 0)
+        ? renderDetail(model, selected, { width: out.columns || 80, color: true })
+        : renderFrame(model, { width: out.columns || 80, color: true, selectedIndex: selected });
       if (interactive) out.write('\x1b[H\x1b[2J' + frame); // home + clear, then frame
       else out.write(frame);
     } catch { /* keep the watcher alive */ }
@@ -131,8 +139,17 @@ function cmdWatch() {
   process.stdin.resume();
   process.stdin.setEncoding('utf8');
   process.stdin.on('data', (key) => {
-    if (key === 'x' || key === '\x03') { // x / Ctrl-C (Esc omitted: a split arrow escape sends a lone \x1b)
+    const n = (model && model.bins) ? model.bins.length : 0;
+    if (key === 'x' || key === '\x03') { // x / Ctrl-C
       cleanup(); out.write('\n[shift] watcher closed — the run keeps going.\n'); process.exit(0);
+    } else if (key === '\x1b[A') {        // ↑ select up
+      if (n) selected = (selected <= 0 ? n : selected) - 1; draw();
+    } else if (key === '\x1b[B') {        // ↓ select down
+      if (n) selected = (selected + 1) % n; draw();
+    } else if (key === '\r' || key === '\n') { // ⏎ open detail
+      if (selected >= 0) mode = 'detail'; draw();
+    } else if (key === '\x1b') {          // esc back to list (lone Esc, not an arrow sequence)
+      mode = 'list'; draw();
     } else if (key === 'p') {
       setPause(dir, !isPaused(dir)); draw();
     } else if (key === 'k') {
@@ -157,6 +174,28 @@ function cmdStop() {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'STOP'), '');
   console.log('shift will stop cleanly after the current bin.');
+}
+
+// The work record: every finalized run (.shift/history.jsonl). `shift history` prints the
+// ledger + totals; `shift history <runId|branch-suffix>` drills into one run's bins.
+function cmdHistory(args) {
+  const dir = path.join(process.cwd(), '.shift');
+  const { readHistory, aggregate } = require('../lib/history.cjs');
+  const { renderHistory, fmtDur, fmtTok } = require('../lib/watch-model.cjs');
+  const records = readHistory(dir);
+  const target = (args || []).find(a => !a.startsWith('-'));
+  if (target) {
+    const r = records.filter(x => x.runId === target || (x.branch || '').endsWith(target)).pop();
+    if (!r) { console.log(`No recorded run matching "${target}".`); return; }
+    const g = s => (s === 'done' ? '✓' : s === 'skipped' ? '⤫' : s === 'blocked' ? '✗' : '·');
+    console.log(`run ${r.runId} · ${r.branch} · ${r.endReason}`);
+    console.log(`  ${fmtDur(r.durationMs)} · ${fmtTok(r.tokens && r.tokens.output)} output · ${r.iterations} iters · ${r.bins.done}✓ ${r.bins.skipped}⤫ ${r.bins.blocked}✗`);
+    for (const b of (r.perBin || [])) {
+      console.log(`  ${g(b.status)} ${b.id}  ${fmtDur(b.durationMs)}  ${fmtTok(b.tokensOutput)} out  ${b.commit || ''}`);
+    }
+    return;
+  }
+  process.stdout.write(renderHistory(records, aggregate(records), { color: !!process.stdout.isTTY }));
 }
 
 // v2: headless outer loop — keeps spawning claude until the engine finalizes,
@@ -228,11 +267,13 @@ const [, , sub, ...rest] = process.argv;
 if (sub === 'start') cmdStart(rest);
 else if (sub === 'status') cmdStatus(rest);
 else if (sub === 'watch') cmdWatch();
+else if (sub === 'history') cmdHistory(rest);
 else if (sub === 'stop') cmdStop();
 else if (sub === 'run') cmdRun().catch(e => { console.error(e); process.exit(1); });
 else {
-  console.log('usage: shift <start|run|watch|status|stop> [--dry-run]');
-  console.log('  watch         live dashboard + control: [p]ause [k]skip [q]stop [x]exit');
-  console.log('  status --line one-line summary for a status bar');
+  console.log('usage: shift <start|run|watch|history|status|stop> [--dry-run]');
+  console.log('  watch          live dashboard + control: ↑/↓ select · ⏎ details · [p]ause [k]skip [q]stop [x]exit');
+  console.log('  history [run]  the work record: per-run runtime/tokens + totals (or one run\'s detail)');
+  console.log('  status --line  one-line summary for a status bar');
   process.exit(1);
 }

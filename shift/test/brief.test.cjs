@@ -29,3 +29,9 @@ test('always explains decision logging, the Needs-you convention, and blocker fl
   assert.match(out, /Needs you:/);
   assert.match(out, /blocked\.jsonl/);
 });
+
+test('guards .shift/ bookkeeping: append-only, never edit state.json (so the hook owns per-bin stats)', () => {
+  const out = renderBrief(bin, { git: {} });
+  assert.match(out, /Never edit.*state\.json/i);
+  assert.match(out, /append/i);
+});

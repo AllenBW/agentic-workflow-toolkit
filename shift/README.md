@@ -70,12 +70,14 @@ An unattended run is the *least* transparent mode there is — so `shift` gives 
 cd your-repo && shift watch
 ```
 
-A dashboard redraws on an interval: a progress bar (`done/total`), every bin with its status (`✓` done · `▶` current · `·` pending · `⤫` skipped · `✗` blocked), elapsed time, the decision-log tail, and the "Needs you" count. Because a run is otherwise a black box, this is where you *see* it working.
+A dashboard redraws on an interval: a progress bar, every bin with its status (`✓` done · `▶` current · `·` pending · `⤫` skipped · `✗` blocked) plus its **runtime and output tokens**, elapsed time, the run's live output-token total (`↑…out`), and the "Needs you" count. Because a run is otherwise a black box, this is where you *see* it working.
 
-It's also the **control surface** — a status bar can show state but can't take input, so `watch` captures keys and writes signals the engine honors at the next stop:
+It's also the **control + drill-down surface** — a status bar can show state but can't take input, so `watch` captures keys:
 
 | key | action |
 |---|---|
+| `↑` / `↓` | move the selection between bins |
+| `⏎` | open a bin's detail view (status, runtime, token breakdown in/out/cache, commit, brief); `esc` back |
 | `p` | pause / resume (the headless runner idles until you resume; still bounded by the time box) |
 | `k` | skip the current bin (marks it `skipped`, moves on — any work stays on the branch) |
 | `q` | stop the run (finalizes after the current bin — same as `shift stop`) |
@@ -83,9 +85,19 @@ It's also the **control surface** — a status bar can show state but can't take
 
 Control is file-based under `.shift/` (`PAUSE` / `SKIP` / `STOP`), so it works whether the run is interactive or headless, and from any terminal in the repo.
 
+> **Tokens are the *output* count** — the honest "work produced" figure, read from the session transcript. A warm run's `input`/cache tokens balloon with re-sent context, so the headline deliberately isn't `total` (that's in the detail view). Run-level tokens + runtime are authoritative; **per-bin** token/runtime columns are best-effort and may show `—` in a fully-headless run (an autonomous agent can rewrite `.shift/` mid-run) — see [SPEC §13](./SPEC.md).
+
+### The work record — `shift history`
+
+Every finalized run is appended to `.shift/history.jsonl`. `shift history` prints the ledger — one row per run (when, branch, runtime, output tokens, bin tally) and a **totals** footer across all runs; `shift history <runId>` drills into a single run's bins.
+
 ### In your status bar (module 1)
 
-For an at-a-glance signal in the [Code Status Bar](../code-status-bar), `shift status --line` prints a one-liner (`⚙ shift 2/5 · 18m · ⚑1`) — empty when no run is active. Wire it into a ccstatusline `custom-command` widget to surface shift "in the place you're already looking."
+For an at-a-glance signal in the [Code Status Bar](../code-status-bar), `shift status --line` prints a one-liner (`⚙ shift 2/5 · 18m · ↑412k ⚑1`) — empty when no run is active. Wire it into a ccstatusline `custom-command` widget to surface shift "in the place you're already looking."
+
+### See it without a run
+
+`node shift/examples/watch-demo.cjs` drives the real engine through a scripted run (with a synthetic transcript) and prints the dashboard at each step — tokens, a `[k]` skip, a `[q]` stop, the detail view, and the history ledger — at zero cost.
 
 ## Configure (`.shift/config.json`)
 
@@ -133,4 +145,4 @@ Pick the narrowest mode that lets the work actually proceed.
 cd shift && npm test     # node --test, zero dependencies
 ```
 
-Pure logic lives in `lib/` (discovery, state, bounds, brief, decision, verify, usage, outcome, run-loop, control, watch-model) and is unit-tested — including `renderFrame`, so the dashboard is testable without a TTY; `hooks/shift-stop.cjs` (the keep-going engine) and the `shift run` loop are integration-tested by driving them with injected effects / crafted hook input. The `bin/shift watch` TUI is a thin shell over the tested `watch-model` + `control` modules.
+Pure logic lives in `lib/` (discovery, state, bounds, brief, decision, verify, usage, outcome, run-loop, control, watch-model, transcript, timeline, history) and is unit-tested — including `renderFrame`/`renderDetail`/`renderHistory`, so the dashboard is testable without a TTY; `hooks/shift-stop.cjs` (the keep-going engine) and the `shift run` loop are integration-tested by driving them with injected effects / crafted hook input. The `bin/shift watch` TUI is a thin shell over the tested `watch-model` + `control` modules.
