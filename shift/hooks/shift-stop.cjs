@@ -11,6 +11,7 @@ const { readSkip, clearSkip } = require('../lib/control.cjs');
 const { sumTokens } = require('../lib/transcript.cjs');
 const { appendRecord } = require('../lib/history.cjs');
 const { appendEvent, readTimeline, binWindows } = require('../lib/timeline.cjs');
+const { engineDir } = require('../lib/store.cjs');
 
 function readStdin() { try { return fs.readFileSync(0, 'utf8'); } catch { return ''; } }
 
@@ -67,11 +68,11 @@ function writeSummary(dir, state, reason, now, runTok) {
 // Append this run to the work record (.shift/history.jsonl). One row per finalized run.
 // Per-bin metrics come from the timeline (boundaries) + transcript (tokens) so they
 // survive even if the agent rewrote state.json mid-run.
-function appendRunRecord(dir, state, reason, now, runTok, transcriptPath) {
+function appendRunRecord(edir, cwd, state, reason, now, runTok, transcriptPath) {
   const tally = s => state.bins.filter(b => b.status === s).length;
-  const windows = binWindows(readTimeline(dir));
+  const windows = binWindows(readTimeline(cwd));
   const nowIso = new Date(now).toISOString();
-  appendRecord(dir, {
+  appendRecord(edir, {
     runId: state.runId, branch: state.branch,
     startedAt: state.startedAt, endedAt: nowIso,
     durationMs: Math.max(0, now - Date.parse(state.startedAt)),
@@ -100,10 +101,14 @@ function main() {
   // Resolve the repo from the hook payload's cwd (the hook's process cwd is not
   // guaranteed to be the project root); fall back to process.cwd().
   const cwd = (input && typeof input.cwd === 'string' && input.cwd) ? input.cwd : process.cwd();
-  const dir = path.join(cwd, '.shift');
-  if (!fs.existsSync(path.join(dir, 'state.json'))) { process.stdout.write('{}'); return; }
+  const dir = path.join(cwd, '.shift');           // user/agent-facing: config, summary, log, control
+  const edir = engineDir(cwd);                    // engine-owned, out of the agent's reach: state, usage, history, timeline
+  if (!fs.existsSync(path.join(edir, 'state.json'))) { process.stdout.write('{}'); return; }
 
-  const config = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'));
+  // config is snapshotted into the engine dir at `shift start`; prefer that (the agent
+  // can't delete it) and fall back to the repo copy.
+  const cfgFile = fs.existsSync(path.join(edir, 'config.json')) ? path.join(edir, 'config.json') : path.join(dir, 'config.json');
+  const config = JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
   const now = Date.now();
   const nowIso = new Date(now).toISOString();
   const killSwitch = fs.existsSync(path.join(dir, 'STOP'));
@@ -111,10 +116,10 @@ function main() {
 
   // Capture rate limits from the hook payload: enforce the usage cap and cache
   // reset times for the headless runner. Absent on non-Pro/Max or pre-first-response.
-  const usagePercent = writeUsageCache(dir, input.rate_limits, Math.floor(now / 1000));
+  const usagePercent = writeUsageCache(edir, input.rate_limits, Math.floor(now / 1000));
 
   // Re-discover (fresh text + new files) and carry over status/attempts.
-  let state = mergeDiscovered(loadState(dir), discoverBins(config.sources, cwd));
+  let state = mergeDiscovered(loadState(edir), discoverBins(config.sources, cwd));
   const transcriptPath = payloadTranscript || state.transcriptPath || null;
 
   const prevBinId = state.currentBinId;
@@ -127,7 +132,7 @@ function main() {
   // agent may rewrite mid-run — and tokens are summed from the transcript (also outside
   // the repo). `fm` is merged into whichever terminal status the bin lands on, but the
   // durable copy is the timeline + the history record, not these (clobberable) fields.
-  const prevStart = prevBinId ? (binWindows(readTimeline(dir))[prevBinId] || {}).startedAt : null;
+  const prevStart = prevBinId ? (binWindows(readTimeline(cwd))[prevBinId] || {}).startedAt : null;
   let fm = {};
   if (prevBinId) {
     const tok = (transcriptPath && prevStart) ? sumTokens(transcriptPath, prevStart, nowIso) : null;
@@ -171,7 +176,7 @@ function main() {
       state = setBinStatus(state, prevBinId, { status: 'done', ...fm });
       binFinished = true;
     }
-    if (binFinished) appendEvent(dir, { t: nowIso, event: 'finish', id: prevBinId });
+    if (binFinished) appendEvent(cwd, { t: nowIso, event: 'finish', id: prevBinId });
   }
 
   const result = decide({
@@ -186,13 +191,13 @@ function main() {
     if (retryFeedback && result.nextBinId === prevBinId) reason += `\n\n${retryFeedback}`;
     state.iterations += 1;
     state.currentBinId = result.nextBinId;
-    // Record the bin's start the first time it becomes current (a new bin, not a verify
-    // retry of the same one). The timeline is the durable copy; state.bins.startedAt is a
-    // best-effort convenience that the agent may clobber.
-    if (result.nextBinId !== prevBinId) appendEvent(dir, { t: nowIso, event: 'start', id: result.nextBinId });
+    // Record the bin's start. binWindows keeps the FIRST start per bin, so re-emitting on
+    // a verify retry (or after the agent clobbers state.json so prevBinId looks unchanged)
+    // is harmless — and unconditionally appending guarantees every bin has a start event.
+    appendEvent(cwd, { t: nowIso, event: 'start', id: result.nextBinId });
     const nb = state.bins.find(b => b.id === result.nextBinId);
     if (nb && !nb.startedAt) state = setBinStatus(state, result.nextBinId, { startedAt: nowIso });
-    saveState(dir, state);
+    saveState(edir, state);
     fs.appendFileSync(path.join(dir, 'log.md'),
       `\n## ${nowIso} — work ${result.nextBinId} (iter ${state.iterations})\n`);
     process.stdout.write(JSON.stringify({ decision: 'block', reason }));
@@ -202,8 +207,8 @@ function main() {
     const alreadyFinalized = fs.existsSync(path.join(dir, 'summary.md'));
     const runTok = transcriptPath ? sumTokens(transcriptPath, state.startedAt, nowIso) : null;
     state.currentBinId = null;
-    saveState(dir, state);
-    if (!alreadyFinalized) appendRunRecord(dir, state, result.reason, now, runTok, transcriptPath);
+    saveState(edir, state);
+    if (!alreadyFinalized) appendRunRecord(edir, cwd, state, result.reason, now, runTok, transcriptPath);
     writeSummary(dir, state, result.reason, now, runTok);
     process.stdout.write('{}');
   }

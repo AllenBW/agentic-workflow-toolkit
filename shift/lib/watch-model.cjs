@@ -5,6 +5,7 @@ const { loadState } = require('./state.cjs');
 const { isPaused, isStopRequested } = require('./control.cjs');
 const { sumUsage, readLines } = require('./transcript.cjs');
 const { readTimeline, binWindows } = require('./timeline.cjs');
+const { engineDir } = require('./store.cjs');
 
 // --- model -----------------------------------------------------------------
 
@@ -30,15 +31,18 @@ function readBrief(cwd, binId) {
   try { return fs.readFileSync(path.join(cwd, binId), 'utf8'); } catch { return ''; }
 }
 
-// buildModel({ dir, now }) — read .shift/ into a plain view model. Pure of rendering.
+// buildModel({ dir, now }) — read the run into a plain view model. `dir` is the repo's
+// .shift/ (log, control, summary); the engine state (state.json) lives out-of-repo.
 function buildModel({ dir, now }) {
+  const cwd = path.dirname(dir);
+  const edir = engineDir(cwd);
   let state;
-  try { state = loadState(dir); } catch { return { exists: false }; }
+  try { state = loadState(edir); } catch { return { exists: false }; }
 
   // Per-bin runtime + tokens are derived from the timeline (agent-proof boundaries) and
   // the transcript (parsed once), so they survive a state.json the agent rewrote. We fall
   // back to any stamps the hook left on state.bins when no timeline/transcript is present.
-  const windows = binWindows(readTimeline(dir));
+  const windows = binWindows(readTimeline(path.dirname(dir))); // timeline keyed by repo cwd, not .shift
   const lines = state.transcriptPath ? readLines(state.transcriptPath) : [];
   const startMs = b => (windows[b.id] && windows[b.id].startedAt) ? Date.parse(windows[b.id].startedAt) : null;
   const finMs = (b, current) => {
