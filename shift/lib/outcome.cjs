@@ -7,11 +7,14 @@ const DEFAULT_PATTERNS = [/rate.?limit/i, /usage limit/i, /quota/i, /\b429\b/];
 const NEAR_LIMIT_PERCENT = 95;
 
 // ctx: { finalized, code, stderr, usage, now (ms), patterns? }
-// returns 'completed' | 'rate_limited' | 'error'
+// returns 'completed' | 'incomplete' | 'rate_limited' | 'error'
 function classifyOutcome(ctx) {
   const { finalized, code, stderr, usage, now, patterns } = ctx;
   if (finalized) return 'completed';      // the engine wrote summary.md → run is done
-  if (code === 0) return 'completed';      // clean exit without finalize (nothing left to do)
+  // A clean exit WITHOUT finalize is NOT success: claude stopped but the engine never
+  // wrote summary.md (hook not wired, or a partial stop). Caller resumes or stops — it
+  // must never be reported as 'completed' (that was a silent false-green).
+  if (code === 0) return 'incomplete';
 
   const nowSec = (typeof now === 'number' ? now : Date.now()) / 1000;
   const resetFuture = usage && typeof usage.sessionResetAt === 'number' && usage.sessionResetAt > nowSec;

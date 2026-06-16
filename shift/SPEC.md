@@ -269,6 +269,17 @@ All three phases are implemented on branch `shift-v1`. Notable as-built decision
 - **Rate-limit detection without the undocumented exit signature (resolves §9.2).** Research confirmed the headless rate-limit termination signature is undocumented, but the **Stop hook payload includes `rate_limits`**. So the engine caches the latest reset/usage to `.shift/usage.json`, and `lib/outcome.cjs` classifies a non-finalized, non-zero spawn as `rate_limited` by **inference** — near-limit cached usage (≥95%) + a future reset — with config-overridable stderr patterns as a fallback. No dependency on an exact exit code/message.
 - **Usage cap source (resolves §9.1).** Enforced from the hook payload's `rate_limits.seven_day.used_percentage`; absent data (non-Pro/Max, pre-first-response) degrades to "cap skipped," never an error.
 - **Verify gate (v3, resolves §9.3).** `verify.command` runs per bin; failures re-feed the bin with the output up to `maxAttempts`, then block it — so "looked done but wasn't" is caught, not silently accepted.
-- **Permissions.** `shift run` uses `--permission-mode` (default `acceptEdits`). Truly unattended work that runs commands typically needs `dontAsk` + a `permissions.allow` list, or `bypassPermissions` — documented in the README; the branch-only/no-push model and bounds are the backstop.
+- **Permissions.** `shift run` uses `--permission-mode` (default `acceptEdits`). Truly unattended work that runs commands typically needs `dontAsk` + a `permissions.allow` list, or `bypassPermissions` — documented in the README; the branch-only/no-push model and bounds are the backstop. The runner now **warns** at startup when `permissionMode` would prompt on Bash (a headless run can't answer), since that combination otherwise exits without finalizing.
 
-**New modules beyond §12:** `lib/verify.cjs`, `lib/usage.cjs`, `lib/outcome.cjs`, `lib/run-loop.cjs`; `bin/shift` gains `run`. **Tests:** 52 in `shift` (pure unit + hook/CLI/run-loop integration), all green.
+**New modules beyond §12:** `lib/verify.cjs`, `lib/usage.cjs`, `lib/outcome.cjs`, `lib/run-loop.cjs`, `lib/install.cjs`; `bin/shift` gains `run`; `install.sh` wires the Stop hook.
+
+### Smoke validation + post-smoke hardening (2026-06-15)
+
+A real bounded `shift run` smoke (2 commit-a-file bins, `bypassPermissions`) **empirically resolved the open question behind §9.2**: headless `claude -p` **does** honor the Stop hook's `{"decision":"block"}` and continues the session warm — both bins were completed and committed within a single spawn. A pre-flight audit of the (previously untested) runner path then drove four fixes:
+
+- **No false-green.** `classifyOutcome` only returns `completed` when the engine actually finalized (`summary.md` written). A `claude -p` that exits 0 without finalizing is `incomplete` — the runner **resumes** if the queue advanced, else **stops with a "is the Stop hook wired?" diagnostic** instead of reporting success. `shift run` grades on `summary.md`, not the exit line.
+- **Stale-reset guard.** Auto-resume stops cleanly when the cached reset time is already in the past (previously a `maxResumes`-bounded busy-spin).
+- **Per-spawn timeout.** `spawnTimeoutMinutes` (default 30) kills a wedged `claude` so a blocking `spawnSync` can't hang the runner; launch failures (`claude` not on PATH) and kills are now surfaced, not swallowed. *Known limitation:* the timeout SIGTERMs the `claude` process only, not any tool-subprocess grandchildren it spawned (an inherent `spawnSync` behavior) — a wedged grandchild can outlive the kill; a detached-process-group reap is a future improvement.
+- **Hook-install is required for `shift run`** and `install.sh` automates it (the bin's task text reaches the agent only via the Stop-hook block).
+
+**Tests:** 63 in `shift` (pure unit + hook/CLI/run-loop/install integration), all green.
