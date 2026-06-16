@@ -52,3 +52,19 @@ test('stop creates the kill switch', () => {
   run(cwd, ['stop']);
   assert.ok(fs.existsSync(path.join(cwd, '.shift', 'STOP')));
 });
+
+test('a second `shift start` scrubs stale control/blocker signals from the prior run', () => {
+  const cwd = repoWithQueue();
+  run(cwd, ['start']);
+  const dir = path.join(cwd, '.shift');
+  // Simulate residue from a prior run: a stale skip, pause, blocker, kill switch, summary.
+  fs.writeFileSync(path.join(dir, 'STOP'), '');
+  fs.writeFileSync(path.join(dir, 'PAUSE'), '');
+  fs.writeFileSync(path.join(dir, 'SKIP'), 'queue/01.md');
+  fs.writeFileSync(path.join(dir, 'blocked.jsonl'), JSON.stringify({ id: 'queue/01.md', note: 'stale' }) + '\n');
+  fs.writeFileSync(path.join(dir, 'summary.md'), '# stale\n');
+  run(cwd, ['start']);
+  for (const f of ['STOP', 'PAUSE', 'SKIP', 'blocked.jsonl', 'summary.md']) {
+    assert.ok(!fs.existsSync(path.join(dir, f)), `${f} must not survive a fresh start (would corrupt the new run)`);
+  }
+});

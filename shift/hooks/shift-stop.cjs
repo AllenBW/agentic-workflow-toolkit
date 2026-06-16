@@ -65,7 +65,7 @@ function writeSummary(dir, state, reason, now, runTok) {
   fs.writeFileSync(path.join(dir, 'summary.md'), lines.join('\n') + '\n');
 }
 
-// Append this run to the work record (.shift/history.jsonl). One row per finalized run.
+// Append this run to the work record (<engineDir>/history.jsonl, out-of-repo). One row per finalized run.
 // Per-bin metrics come from the timeline (boundaries) + transcript (tokens) so they
 // survive even if the agent rewrote state.json mid-run.
 function appendRunRecord(edir, cwd, state, reason, now, runTok, transcriptPath) {

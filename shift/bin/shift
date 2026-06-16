@@ -64,7 +64,12 @@ function cmdStart(args) {
   fs.mkdirSync(dir, { recursive: true });
   const edir = engineDir(cwd); // engine state lives out of the repo so the agent can't usurp it
   if (fs.existsSync(path.join(dir, 'STOP'))) fs.unlinkSync(path.join(dir, 'STOP'));
-  try { fs.unlinkSync(path.join(dir, 'summary.md')); } catch { /* none */ }
+  // Scrub every stale control/blocker signal so a prior run can't corrupt this one:
+  // PAUSE → run idle-polls forever; SKIP → a bin is silently skipped; blocked.jsonl →
+  // a bin is re-blocked with last run's note. All live repo-side, beside STOP.
+  for (const f of ['PAUSE', 'SKIP', 'blocked.jsonl', 'summary.md']) {
+    try { fs.unlinkSync(path.join(dir, f)); } catch { /* none */ }
+  }
   require('../lib/timeline.cjs').clearTimeline(cwd); // fresh run → fresh boundary record
   try { fs.unlinkSync(path.join(edir, 'usage.json')); } catch { /* none */ } // stale usage from a prior run
   fs.writeFileSync(cfgFile, JSON.stringify(config, null, 2));                 // .shift/config.json (user-editable)
@@ -181,7 +186,7 @@ function cmdStop() {
   console.log('shift will stop cleanly after the current bin.');
 }
 
-// The work record: every finalized run (.shift/history.jsonl). `shift history` prints the
+// The work record: every finalized run (<engineDir>/history.jsonl, out-of-repo). `shift history` prints the
 // ledger + totals; `shift history <runId|branch-suffix>` drills into one run's bins.
 function cmdHistory(args) {
   const edir = engineDir(process.cwd());

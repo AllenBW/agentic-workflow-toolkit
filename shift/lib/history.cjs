@@ -2,9 +2,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-// The shift work record: an append-only ledger of finalized runs at .shift/history.jsonl.
-// `shift start` rewrites state.json but never touches this, so it accumulates across runs.
-// One JSON line per run (totals + per-bin breakdown). Read for `shift history` + aggregates.
+// The shift work record: an append-only ledger of finalized runs at <engineDir>/history.jsonl
+// (out-of-repo, alongside state.json/usage.json/timeline.jsonl — see store.cjs). `shift start`
+// resets the engine state but never touches this, so it accumulates across runs. All callers
+// pass the engineDir. One JSON line per run (totals + per-bin breakdown). Read for `shift history`.
 
 function historyPath(dir) { return path.join(dir, 'history.jsonl'); }
 
