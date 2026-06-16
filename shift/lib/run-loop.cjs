@@ -36,6 +36,8 @@ async function runLoop({ config, effects }) {
     // Paused via `shift watch` ([p]): idle without spawning until resumed. Still bounded
     // by maxHours/usage (re-checked each poll), so a forgotten pause can't run forever.
     if (effects.isPaused && effects.isPaused()) {
+      // [q] stops even while paused — otherwise pause+stop would park until the time box.
+      if (effects.isStopRequested && effects.isStopRequested()) return { reason: 'stopped while paused', spawns };
       effects.log('paused — waiting (resume with [p] in `shift watch`)');
       await effects.sleepUntil(now + PAUSE_POLL_MS);
       continue;

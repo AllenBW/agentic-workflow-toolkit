@@ -79,7 +79,11 @@ function bar(done, total, width) {
   return '█'.repeat(filled) + '░'.repeat(Math.max(0, width - filled));
 }
 
-function pad(s, n) { s = String(s); return s.length >= n ? s.slice(0, n) : s + ' '.repeat(n - s.length); }
+function pad(s, n) {
+  s = String(s);
+  if (s.length > n) return s.slice(0, n - 1) + '…'; // truncate long bin ids with an ellipsis
+  return s + ' '.repeat(n - s.length);
+}
 
 // renderFrame(model, { width, color }) -> string. Pure.
 function renderFrame(model, opts = {}) {
@@ -99,8 +103,10 @@ function renderFrame(model, opts = {}) {
   L.push(`${c(ANSI.bold, 'shift')} ${c(ANSI.dim, '·')} ${c(ANSI.cyan, model.branch)} ${c(ANSI.dim, '·')} iter ${model.iterations}   ${status}`);
   L.push(c(ANSI.dim, '─'.repeat(Math.min(width, 64))));
 
-  const { done, total } = { done: model.counts.done, total: model.counts.total };
-  L.push(`${c(ANSI.green, bar(done, total, 24))}  ${c(ANSI.bold, `${done}/${total}`)} bins ${c(ANSI.dim, '·')} ${model.elapsedMin}m elapsed`);
+  const { done, blocked, skipped, total } = model.counts;
+  const resolved = done + blocked + skipped; // bar fills as the queue is dealt with (reaches full at finalize)
+  const extra = (blocked + skipped) ? c(ANSI.dim, ` (${blocked + skipped} blocked/skipped)`) : '';
+  L.push(`${c(ANSI.green, bar(resolved, total, 24))}  ${c(ANSI.bold, `${done}/${total}`)} done${extra} ${c(ANSI.dim, '·')} ${model.elapsedMin}m elapsed`);
   L.push('');
 
   for (const b of model.bins) {

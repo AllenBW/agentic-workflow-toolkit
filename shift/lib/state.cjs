@@ -11,7 +11,11 @@ function saveState(dir, state) {
   // Persist lean: the bin `text` is re-read from disk on each discovery pass, so
   // keep it out of state.json (avoids bloating state with full brief/plan bodies).
   const lean = { ...state, bins: state.bins.map(({ text, ...b }) => b) };
-  fs.writeFileSync(statePath(dir), JSON.stringify(lean, null, 2));
+  // Write-then-rename so a concurrent reader (e.g. `shift watch`) never parses a
+  // half-written file; renameSync is atomic within the same directory.
+  const tmp = statePath(dir) + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(lean, null, 2));
+  fs.renameSync(tmp, statePath(dir));
 }
 
 function initState({ runId, startedAt, branch }) {

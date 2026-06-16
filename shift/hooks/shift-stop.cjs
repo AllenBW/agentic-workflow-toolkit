@@ -83,11 +83,11 @@ function main() {
   // Attribute the just-finished work to the current bin (skipped / blocked / verify gate / done).
   if (prevBinId) {
     const skipId = readSkip(dir);
+    if (skipId) clearSkip(dir); // consume on read: a skip that misses its target is discarded, never left to fire on a later bin
     const blocked = readBlocked(dir).find(x => x.id === prevBinId);
     if (skipId === prevBinId) {
       // User hit [k] in `shift watch`: drop this bin and move on (work, if any, stays on the branch).
       state = setBinStatus(state, prevBinId, { status: 'skipped', note: 'skipped by user' });
-      clearSkip(dir);
     } else if (blocked) {
       state = setBinStatus(state, prevBinId, { status: 'blocked', note: blocked.note });
     } else if (verifyCmd) {
