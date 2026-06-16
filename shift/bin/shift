@@ -105,16 +105,21 @@ function cmdWatch() {
 
   let model;
   const draw = () => {
-    model = buildModel({ dir, now: Date.now() });
-    const frame = renderFrame(model, { width: out.columns || 80, color: true });
-    if (interactive) out.write('\x1b[H\x1b[2J' + frame); // home + clear, then frame
-    else out.write(frame);
+    try { // a transient read/write error must never wedge the terminal — retry next tick
+      model = buildModel({ dir, now: Date.now() });
+      const frame = renderFrame(model, { width: out.columns || 80, color: true });
+      if (interactive) out.write('\x1b[H\x1b[2J' + frame); // home + clear, then frame
+      else out.write(frame);
+    } catch { /* keep the watcher alive */ }
   };
 
   if (!interactive) { draw(); return; } // piped / non-TTY: print one frame and exit
 
   let timer = null;
-  const cleanup = () => {
+  let closed = false;
+  const cleanup = () => { // idempotent; ALWAYS restores the terminal
+    if (closed) return;
+    closed = true;
     if (timer) clearInterval(timer);
     try { process.stdin.setRawMode(false); } catch { /* ignore */ }
     process.stdin.pause();
@@ -126,7 +131,7 @@ function cmdWatch() {
   process.stdin.resume();
   process.stdin.setEncoding('utf8');
   process.stdin.on('data', (key) => {
-    if (key === 'x' || key === '\x1b' || key === '\x03') { // x / Esc / Ctrl-C
+    if (key === 'x' || key === '\x03') { // x / Ctrl-C (Esc omitted: a split arrow escape sends a lone \x1b)
       cleanup(); out.write('\n[shift] watcher closed — the run keeps going.\n'); process.exit(0);
     } else if (key === 'p') {
       setPause(dir, !isPaused(dir)); draw();
@@ -138,7 +143,10 @@ function cmdWatch() {
       requestStop(dir); draw();
     }
   });
-  process.on('SIGINT', () => { cleanup(); process.exit(0); });
+  // Restore on every exit path, not just the keys: a closed terminal (SIGHUP),
+  // kill (SIGTERM), or Ctrl-C must not leave the next shell with a hidden cursor + raw mode.
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { cleanup(); process.exit(0); });
+  process.on('exit', cleanup);
 
   draw();
   timer = setInterval(draw, 800);
@@ -164,7 +172,7 @@ async function cmdRun() {
   const mode = config.permissionMode || 'acceptEdits';
   const { runLoop } = require('../lib/run-loop.cjs');
   const { readUsageCache } = require('../lib/usage.cjs');
-  const { isPaused } = require('../lib/control.cjs');
+  const { isPaused, isStopRequested } = require('../lib/control.cjs');
 
   // A headless `-p` run cannot answer permission prompts. Only bypassPermissions/dontAsk
   // auto-approve tool calls like Bash(git commit) — anything else stalls or denies on the
@@ -189,6 +197,7 @@ async function cmdRun() {
     log: (m) => console.log(`[shift] ${m}`),
     finalized: () => fs.existsSync(path.join(dir, 'summary.md')),
     isPaused: () => isPaused(dir),
+    isStopRequested: () => isStopRequested(dir),
     sleepUntil: (ms) => new Promise(r => setTimeout(r, Math.max(0, ms - Date.now()))),
     spawn: () => {
       const args = ['-p', '--permission-mode', mode];

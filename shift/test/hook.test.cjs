@@ -86,6 +86,16 @@ test('SKIP control marks the current bin skipped and advances to the next', () =
   assert.ok(!fs.existsSync(path.join(dir, 'SKIP')), 'SKIP is consumed');
 });
 
+test('a SKIP naming a non-current bin is consumed and discarded, not applied to a later bin', () => {
+  const { cwd, dir } = setupRun();
+  runHook(cwd, { stop_hook_active: false });                       // start bin 1
+  fs.writeFileSync(path.join(dir, 'SKIP'), 'queue/99-nope.md');    // stale / wrong id
+  runHook(cwd, { stop_hook_active: true });                        // bin 1 -> done (skip ignored)
+  const s = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
+  assert.equal(s.bins.find(b => b.id === 'queue/01.md').status, 'done');
+  assert.ok(!fs.existsSync(path.join(dir, 'SKIP')), 'stale SKIP is consumed, never left to fire on a later bin');
+});
+
 test('kill switch ends the run immediately', () => {
   const { cwd, dir } = setupRun();
   fs.writeFileSync(path.join(dir, 'STOP'), '');

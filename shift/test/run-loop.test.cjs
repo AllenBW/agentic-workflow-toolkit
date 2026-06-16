@@ -127,6 +127,19 @@ test('pause idles the runner (no spawn) until unpaused, then proceeds', async ()
   assert.equal(calls.spawns, 1, 'no spawn while paused; one after resume');
 });
 
+test('stop requested while paused ends the run (does not park until the time box)', async () => {
+  const { effects, calls, config } = makeEffects({
+    spawns: [{ result: { status: 0 }, finalize: true }],
+    usage: null
+  });
+  effects.isPaused = () => true;            // stays paused
+  effects.isStopRequested = () => true;     // ...but the user also hit [q]
+  const r = await runLoop({ config, effects });
+  assert.match(r.reason, /stop/i);
+  assert.equal(calls.spawns, 0);
+  assert.equal(calls.sleepUntil.length, 0, 'must not idle when a stop is pending');
+});
+
 test('rate-limited with a stale/past reset stops instead of busy-spinning', async () => {
   // Reset time is already in the past (stale cache). sleepUntil(past) would return
   // instantly and re-spawn forever (bounded only by maxResumes) — guard must stop.
