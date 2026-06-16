@@ -114,6 +114,19 @@ test('incomplete spawn WITHOUT progress stops with a hook-wiring diagnostic (no 
   assert.equal(calls.spawns, 1, 'must not spin');
 });
 
+test('pause idles the runner (no spawn) until unpaused, then proceeds', async () => {
+  const { effects, calls, config } = makeEffects({
+    spawns: [{ result: { status: 0 }, finalize: true }],
+    usage: null
+  });
+  let checks = 0;
+  effects.isPaused = () => checks++ < 2; // paused for the first two loop iterations
+  const r = await runLoop({ config, effects });
+  assert.match(r.reason, /finalized/);
+  assert.ok(calls.sleepUntil.length >= 2, 'idled while paused');
+  assert.equal(calls.spawns, 1, 'no spawn while paused; one after resume');
+});
+
 test('rate-limited with a stale/past reset stops instead of busy-spinning', async () => {
   // Reset time is already in the past (stale cache). sleepUntil(past) would return
   // instantly and re-spawn forever (bounded only by maxResumes) — guard must stop.

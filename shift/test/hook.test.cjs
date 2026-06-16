@@ -74,6 +74,18 @@ test('logged "Needs you:" lines surface in the summary', () => {
   assert.match(fs.readFileSync(path.join(dir, 'summary.md'), 'utf8'), /push the release tag/);
 });
 
+test('SKIP control marks the current bin skipped and advances to the next', () => {
+  const { cwd, dir } = setupRun();
+  runHook(cwd, { stop_hook_active: false });            // start bin 1 (current = queue/01.md)
+  fs.writeFileSync(path.join(dir, 'SKIP'), 'queue/01.md');
+  const r = runHook(cwd, { stop_hook_active: true });   // skip bin 1, block bin 2
+  assert.equal(r.decision, 'block');
+  assert.match(r.reason, /bin two/);
+  const s = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
+  assert.equal(s.bins.find(b => b.id === 'queue/01.md').status, 'skipped');
+  assert.ok(!fs.existsSync(path.join(dir, 'SKIP')), 'SKIP is consumed');
+});
+
 test('kill switch ends the run immediately', () => {
   const { cwd, dir } = setupRun();
   fs.writeFileSync(path.join(dir, 'STOP'), '');

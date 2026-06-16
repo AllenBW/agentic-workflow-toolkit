@@ -60,7 +60,32 @@ shift status     # progress anytime
 shift stop       # stop cleanly after the current bin
 ```
 
-When it ends, read `.shift/summary.md` (bins done/blocked + a "Needs you" section) and review the `shift/<date>` branch.
+When it ends, read `.shift/summary.md` (bins done/blocked/skipped + a "Needs you" section) and review the `shift/<date>` branch.
+
+## Watch it live + steer it (`shift watch`)
+
+An unattended run is the *least* transparent mode there is — so `shift` gives you a live window into it. In a second terminal:
+
+```bash
+cd your-repo && shift watch
+```
+
+A dashboard redraws on an interval: a progress bar (`done/total`), every bin with its status (`✓` done · `▶` current · `·` pending · `⤫` skipped · `✗` blocked), elapsed time, the decision-log tail, and the "Needs you" count. Because a run is otherwise a black box, this is where you *see* it working.
+
+It's also the **control surface** — a status bar can show state but can't take input, so `watch` captures keys and writes signals the engine honors at the next stop:
+
+| key | action |
+|---|---|
+| `p` | pause / resume (the headless runner idles until you resume; still bounded by the time box) |
+| `k` | skip the current bin (marks it `skipped`, moves on — any work stays on the branch) |
+| `q` | stop the run (finalizes after the current bin — same as `shift stop`) |
+| `x` | close the watcher (the run keeps going) |
+
+Control is file-based under `.shift/` (`PAUSE` / `SKIP` / `STOP`), so it works whether the run is interactive or headless, and from any terminal in the repo.
+
+### In your status bar (module 1)
+
+For an at-a-glance signal in the [Code Status Bar](../code-status-bar), `shift status --line` prints a one-liner (`⚙ shift 2/5 · 18m · ⚑1`) — empty when no run is active. Wire it into a ccstatusline `custom-command` widget to surface shift "in the place you're already looking."
 
 ## Configure (`.shift/config.json`)
 
@@ -108,4 +133,4 @@ Pick the narrowest mode that lets the work actually proceed.
 cd shift && npm test     # node --test, zero dependencies
 ```
 
-Pure logic lives in `lib/` (discovery, state, bounds, brief, decision, verify, usage, outcome, run-loop) and is unit-tested; `hooks/shift-stop.cjs` (the keep-going engine) and the `shift run` loop are integration-tested by driving them with injected effects / crafted hook input.
+Pure logic lives in `lib/` (discovery, state, bounds, brief, decision, verify, usage, outcome, run-loop, control, watch-model) and is unit-tested — including `renderFrame`, so the dashboard is testable without a TTY; `hooks/shift-stop.cjs` (the keep-going engine) and the `shift run` loop are integration-tested by driving them with injected effects / crafted hook input. The `bin/shift watch` TUI is a thin shell over the tested `watch-model` + `control` modules.

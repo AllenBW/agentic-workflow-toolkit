@@ -7,6 +7,7 @@ const { loadState, saveState, mergeDiscovered, setBinStatus } = require('../lib/
 const { decide } = require('../lib/decision.cjs');
 const { runVerify } = require('../lib/verify.cjs');
 const { writeUsageCache } = require('../lib/usage.cjs');
+const { readSkip, clearSkip } = require('../lib/control.cjs');
 
 function readStdin() { try { return fs.readFileSync(0, 'utf8'); } catch { return ''; } }
 
@@ -34,6 +35,7 @@ function tail(s, n) {
 function writeSummary(dir, state, reason, now) {
   const done = state.bins.filter(b => b.status === 'done').length;
   const blocked = state.bins.filter(b => b.status === 'blocked');
+  const skipped = state.bins.filter(b => b.status === 'skipped').length;
   const pending = state.bins.filter(b => b.status === 'pending').length;
   const mins = Math.round((now - Date.parse(state.startedAt)) / 60000);
   const items = [
@@ -45,7 +47,7 @@ function writeSummary(dir, state, reason, now) {
     `Ended: ${reason}`,
     `Duration: ${mins} min · Iterations: ${state.iterations}`,
     `Branch: ${state.branch}`,
-    `Bins: ${done} done · ${blocked.length} blocked · ${pending} pending`, '',
+    `Bins: ${done} done · ${blocked.length} blocked · ${skipped} skipped · ${pending} pending`, '',
     '## Needs you',
     ...(items.length ? items : ['- (nothing flagged)'])
   ];
@@ -78,10 +80,15 @@ function main() {
   const maxAttempts = (config.verify && config.verify.maxAttempts) || 2;
   let retryFeedback = null;
 
-  // Attribute the just-finished work to the current bin (blocked / verify gate / done).
+  // Attribute the just-finished work to the current bin (skipped / blocked / verify gate / done).
   if (prevBinId) {
+    const skipId = readSkip(dir);
     const blocked = readBlocked(dir).find(x => x.id === prevBinId);
-    if (blocked) {
+    if (skipId === prevBinId) {
+      // User hit [k] in `shift watch`: drop this bin and move on (work, if any, stays on the branch).
+      state = setBinStatus(state, prevBinId, { status: 'skipped', note: 'skipped by user' });
+      clearSkip(dir);
+    } else if (blocked) {
       state = setBinStatus(state, prevBinId, { status: 'blocked', note: blocked.note });
     } else if (verifyCmd) {
       const v = runVerify(verifyCmd, cwd);
