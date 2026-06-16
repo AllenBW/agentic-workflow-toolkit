@@ -4,8 +4,11 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+// Out-of-repo timeline base → tmp (fixtures have no timeline → per-bin falls back to state.bins).
+process.env.SHIFT_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'shift-wmbase-'));
 const { buildModel, renderFrame, renderDetail, renderHistory } = require('../lib/watch-model.cjs');
 const { aggregate } = require('../lib/history.cjs');
+const { engineDir } = require('../lib/store.cjs');
 
 function fixture({ paused = false, currentBinId = 'queue/03-build.md' } = {}) {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'shift-watch-'));
@@ -14,7 +17,7 @@ function fixture({ paused = false, currentBinId = 'queue/03-build.md' } = {}) {
   fs.mkdirSync(path.join(cwd, 'queue'), { recursive: true });
   fs.writeFileSync(path.join(cwd, 'queue', '03-build.md'), '# Build the thing\n\nCompile and commit.\n');
   const startedAt = new Date(Date.now() - 12 * 60_000).toISOString();
-  fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({
+  fs.writeFileSync(path.join(engineDir(cwd), 'state.json'), JSON.stringify({
     runId: '2026-06-16T00-00-00', startedAt, iterations: 7, branch: 'shift/smoke',
     currentBinId,
     bins: [

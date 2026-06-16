@@ -5,6 +5,7 @@ const path = require('node:path');
 const cp = require('node:child_process');
 const { discoverBins } = require('../lib/discovery.cjs');
 const { initState, saveState, loadState, mergeDiscovered } = require('../lib/state.cjs');
+const { engineDir } = require('../lib/store.cjs');
 
 function isoStamp(d) { return d.toISOString().replace(/[:.]/g, '-').slice(0, 19); }
 function dateStr(d) { return d.toISOString().slice(0, 10); }
@@ -61,12 +62,16 @@ function cmdStart(args) {
   }
 
   fs.mkdirSync(dir, { recursive: true });
+  const edir = engineDir(cwd); // engine state lives out of the repo so the agent can't usurp it
   if (fs.existsSync(path.join(dir, 'STOP'))) fs.unlinkSync(path.join(dir, 'STOP'));
-  require('../lib/timeline.cjs').clearTimeline(dir); // fresh run → fresh boundary record
-  fs.writeFileSync(cfgFile, JSON.stringify(config, null, 2));
+  try { fs.unlinkSync(path.join(dir, 'summary.md')); } catch { /* none */ }
+  require('../lib/timeline.cjs').clearTimeline(cwd); // fresh run → fresh boundary record
+  try { fs.unlinkSync(path.join(edir, 'usage.json')); } catch { /* none */ } // stale usage from a prior run
+  fs.writeFileSync(cfgFile, JSON.stringify(config, null, 2));                 // .shift/config.json (user-editable)
+  fs.writeFileSync(path.join(edir, 'config.json'), JSON.stringify(config, null, 2)); // snapshot the agent can't delete
   let state = initState({ runId: isoStamp(now), startedAt: now.toISOString(), branch });
   state = mergeDiscovered(state, discovered);
-  saveState(dir, state);
+  saveState(edir, state);
   fs.writeFileSync(path.join(dir, 'log.md'), `# shift log — ${state.runId}\n`);
 
   if (!ensureBranch(cwd, branch)) {
@@ -179,10 +184,10 @@ function cmdStop() {
 // The work record: every finalized run (.shift/history.jsonl). `shift history` prints the
 // ledger + totals; `shift history <runId|branch-suffix>` drills into one run's bins.
 function cmdHistory(args) {
-  const dir = path.join(process.cwd(), '.shift');
+  const edir = engineDir(process.cwd());
   const { readHistory, aggregate } = require('../lib/history.cjs');
   const { renderHistory, fmtDur, fmtTok } = require('../lib/watch-model.cjs');
-  const records = readHistory(dir);
+  const records = readHistory(edir);
   const target = (args || []).find(a => !a.startsWith('-'));
   if (target) {
     const r = records.filter(x => x.runId === target || (x.branch || '').endsWith(target)).pop();
@@ -203,11 +208,13 @@ function cmdHistory(args) {
 async function cmdRun() {
   const cwd = process.cwd();
   const dir = path.join(cwd, '.shift');
-  if (!fs.existsSync(path.join(dir, 'state.json'))) {
+  const edir = engineDir(cwd);
+  if (!fs.existsSync(path.join(edir, 'state.json'))) {
     console.log('No active run. Run `shift start` first.');
     process.exit(1);
   }
-  const config = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8'));
+  const cfgFile = fs.existsSync(path.join(edir, 'config.json')) ? path.join(edir, 'config.json') : path.join(dir, 'config.json');
+  const config = JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
   const mode = config.permissionMode || 'acceptEdits';
   const { runLoop } = require('../lib/run-loop.cjs');
   const { readUsageCache } = require('../lib/usage.cjs');
@@ -231,8 +238,8 @@ async function cmdRun() {
   let first = true;
   const effects = {
     now: () => Date.now(),
-    loadState: () => loadState(dir),
-    readUsage: () => readUsageCache(dir),
+    loadState: () => loadState(edir),
+    readUsage: () => readUsageCache(edir),
     log: (m) => console.log(`[shift] ${m}`),
     finalized: () => fs.existsSync(path.join(dir, 'summary.md')),
     isPaused: () => isPaused(dir),

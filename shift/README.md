@@ -85,11 +85,15 @@ It's also the **control + drill-down surface** — a status bar can show state b
 
 Control is file-based under `.shift/` (`PAUSE` / `SKIP` / `STOP`), so it works whether the run is interactive or headless, and from any terminal in the repo.
 
-> **Tokens are the *output* count** — the honest "work produced" figure, read from the session transcript. A warm run's `input`/cache tokens balloon with re-sent context, so the headline deliberately isn't `total` (that's in the detail view). Run-level tokens + runtime are authoritative; **per-bin** token/runtime columns are best-effort and may show `—` in a fully-headless run (an autonomous agent can rewrite `.shift/` mid-run) — see [SPEC §13](./SPEC.md).
+> **Tokens are the *output* count** — the honest "work produced" figure, read from the session transcript. A warm run's `input`/cache tokens balloon with re-sent context, so the headline deliberately isn't `total` (that's in the detail view). Both run-level and per-bin tokens/runtime are reliable, including in fully-headless runs: the engine's state lives **outside the repo** (see below), so an autonomous agent can't corrupt it.
+
+### Where state lives (and why)
+
+Shift keeps the engine's authoritative state — run state, timeline, usage, and the work-record history — **outside the repo**, under `$XDG_STATE_HOME/shift/<hash-of-repo-path>/` (or `~/.local/state/shift/…`). The reason is candor-meets-reality: an autonomous agent will rewrite or delete files it finds in the repo (it was caught marking bins done in `.shift/state.json` itself), so the engine puts its state where the agent — which only works inside the repo — can't reach it. `.shift/` in your repo holds only what you and the agent legitimately touch: `config.json` (you edit it), `summary.md` (you read it), `log.md`/`blocked.jsonl` (the agent appends), and the control signals. Override the location with `SHIFT_STATE_DIR`.
 
 ### The work record — `shift history`
 
-Every finalized run is appended to `.shift/history.jsonl`. `shift history` prints the ledger — one row per run (when, branch, runtime, output tokens, bin tally) and a **totals** footer across all runs; `shift history <runId>` drills into a single run's bins.
+Every finalized run is appended to an append-only ledger in the engine state dir. `shift history` prints it — one row per run (when, branch, runtime, output tokens, bin tally) and a **totals** footer across all runs; `shift history <runId>` drills into a single run's bins.
 
 ### In your status bar (module 1)
 
@@ -145,4 +149,4 @@ Pick the narrowest mode that lets the work actually proceed.
 cd shift && npm test     # node --test, zero dependencies
 ```
 
-Pure logic lives in `lib/` (discovery, state, bounds, brief, decision, verify, usage, outcome, run-loop, control, watch-model, transcript, timeline, history) and is unit-tested — including `renderFrame`/`renderDetail`/`renderHistory`, so the dashboard is testable without a TTY; `hooks/shift-stop.cjs` (the keep-going engine) and the `shift run` loop are integration-tested by driving them with injected effects / crafted hook input. The `bin/shift watch` TUI is a thin shell over the tested `watch-model` + `control` modules.
+Pure logic lives in `lib/` (discovery, state, bounds, brief, decision, verify, usage, outcome, run-loop, control, watch-model, transcript, timeline, history, store) and is unit-tested — including `renderFrame`/`renderDetail`/`renderHistory`, so the dashboard is testable without a TTY; `hooks/shift-stop.cjs` (the keep-going engine) and the `shift run` loop are integration-tested by driving them with injected effects / crafted hook input. The `bin/shift watch` TUI is a thin shell over the tested `watch-model` + `control` modules.
