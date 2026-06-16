@@ -76,11 +76,72 @@ function cmdStart(args) {
   console.log('Now open Claude Code in this repo and say: "begin the shift".');
 }
 
-function cmdStatus() {
-  const state = loadState(path.join(process.cwd(), '.shift'));
-  const c = s => state.bins.filter(b => b.status === s).length;
-  console.log(`run ${state.runId} · branch ${state.branch} · iter ${state.iterations}`);
-  console.log(`bins: ${c('done')} done · ${c('blocked')} blocked · ${c('pending')} pending`);
+function cmdStatus(args) {
+  const dir = path.join(process.cwd(), '.shift');
+  const { buildModel, renderLine } = require('../lib/watch-model.cjs');
+  const model = buildModel({ dir, now: Date.now() });
+
+  // `shift status --line` → a one-line summary for a status bar (module 1 / ccstatusline
+  // custom-command widget pipes the session payload in; this just prints shift's line).
+  if (args && args.includes('--line')) {
+    if (model.exists && !model.finalized) process.stdout.write(renderLine(model, { color: !args.includes('--no-color') }) + '\n');
+    return;
+  }
+  if (!model.exists) { console.log('No active shift run here. Start one with `shift start`.'); return; }
+  const cs = model.counts;
+  console.log(`run ${model.runId} · branch ${model.branch} · iter ${model.iterations}${model.paused ? ' · PAUSED' : ''}`);
+  console.log(`bins: ${cs.done} done · ${cs.blocked} blocked · ${cs.skipped} skipped · ${cs.pending} pending  (${model.elapsedMin}m)`);
+}
+
+// v3: live dashboard + keyboard control. Reads .shift/ on an interval and writes
+// control signals (PAUSE/SKIP/STOP) that the engine honors. Output-only surfaces
+// (a status bar) can't take input, so this is the interactive control surface.
+function cmdWatch() {
+  const dir = path.join(process.cwd(), '.shift');
+  const { buildModel, renderFrame } = require('../lib/watch-model.cjs');
+  const { setPause, isPaused, requestSkip, requestStop } = require('../lib/control.cjs');
+  const out = process.stdout;
+  const interactive = !!(process.stdin.isTTY && out.isTTY);
+
+  let model;
+  const draw = () => {
+    model = buildModel({ dir, now: Date.now() });
+    const frame = renderFrame(model, { width: out.columns || 80, color: true });
+    if (interactive) out.write('\x1b[H\x1b[2J' + frame); // home + clear, then frame
+    else out.write(frame);
+  };
+
+  if (!interactive) { draw(); return; } // piped / non-TTY: print one frame and exit
+
+  let timer = null;
+  const cleanup = () => {
+    if (timer) clearInterval(timer);
+    try { process.stdin.setRawMode(false); } catch { /* ignore */ }
+    process.stdin.pause();
+    out.write('\x1b[?25h'); // show cursor
+  };
+
+  out.write('\x1b[?25l'); // hide cursor
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (key) => {
+    if (key === 'x' || key === '\x1b' || key === '\x03') { // x / Esc / Ctrl-C
+      cleanup(); out.write('\n[shift] watcher closed — the run keeps going.\n'); process.exit(0);
+    } else if (key === 'p') {
+      setPause(dir, !isPaused(dir)); draw();
+    } else if (key === 'k') {
+      const cur = (model.bins || []).find(b => b.current);
+      if (cur) requestSkip(dir, cur.id);
+      draw();
+    } else if (key === 'q') {
+      requestStop(dir); draw();
+    }
+  });
+  process.on('SIGINT', () => { cleanup(); process.exit(0); });
+
+  draw();
+  timer = setInterval(draw, 800);
 }
 
 function cmdStop() {
@@ -103,6 +164,7 @@ async function cmdRun() {
   const mode = config.permissionMode || 'acceptEdits';
   const { runLoop } = require('../lib/run-loop.cjs');
   const { readUsageCache } = require('../lib/usage.cjs');
+  const { isPaused } = require('../lib/control.cjs');
 
   // A headless `-p` run cannot answer permission prompts. Only bypassPermissions/dontAsk
   // auto-approve tool calls like Bash(git commit) — anything else stalls or denies on the
@@ -126,6 +188,7 @@ async function cmdRun() {
     readUsage: () => readUsageCache(dir),
     log: (m) => console.log(`[shift] ${m}`),
     finalized: () => fs.existsSync(path.join(dir, 'summary.md')),
+    isPaused: () => isPaused(dir),
     sleepUntil: (ms) => new Promise(r => setTimeout(r, Math.max(0, ms - Date.now()))),
     spawn: () => {
       const args = ['-p', '--permission-mode', mode];
@@ -154,7 +217,13 @@ async function cmdRun() {
 
 const [, , sub, ...rest] = process.argv;
 if (sub === 'start') cmdStart(rest);
-else if (sub === 'status') cmdStatus();
+else if (sub === 'status') cmdStatus(rest);
+else if (sub === 'watch') cmdWatch();
 else if (sub === 'stop') cmdStop();
 else if (sub === 'run') cmdRun().catch(e => { console.error(e); process.exit(1); });
-else { console.log('usage: shift <start|run|status|stop> [--dry-run]'); process.exit(1); }
+else {
+  console.log('usage: shift <start|run|watch|status|stop> [--dry-run]');
+  console.log('  watch         live dashboard + control: [p]ause [k]skip [q]stop [x]exit');
+  console.log('  status --line one-line summary for a status bar');
+  process.exit(1);
+}

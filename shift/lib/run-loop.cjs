@@ -3,6 +3,7 @@ const { evaluateBounds } = require('./bounds.cjs');
 const { classifyOutcome } = require('./outcome.cjs');
 
 const RESET_BUFFER_MS = 60_000;
+const PAUSE_POLL_MS = 5_000;
 
 // The headless outer loop (v2). All side effects are injected so the loop is
 // fully testable without a real `claude` or real sleeping.
@@ -31,6 +32,14 @@ async function runLoop({ config, effects }) {
 
     if (lastOutcome === 'completed') return { reason: 'run finalized by the engine', spawns };
     if (lastOutcome === 'error') return { reason: 'run errored — stopping (see output)', spawns };
+
+    // Paused via `shift watch` ([p]): idle without spawning until resumed. Still bounded
+    // by maxHours/usage (re-checked each poll), so a forgotten pause can't run forever.
+    if (effects.isPaused && effects.isPaused()) {
+      effects.log('paused — waiting (resume with [p] in `shift watch`)');
+      await effects.sleepUntil(now + PAUSE_POLL_MS);
+      continue;
+    }
 
     if (lastOutcome === 'rate_limited') {
       if (!bounds.autoResumeOnReset) return { reason: 'rate limited; auto-resume disabled', spawns };

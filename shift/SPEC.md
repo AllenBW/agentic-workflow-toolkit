@@ -283,3 +283,9 @@ A real bounded `shift run` smoke (2 commit-a-file bins, `bypassPermissions`) **e
 - **Hook-install is required for `shift run`** and `install.sh` automates it (the bin's task text reaches the agent only via the Stop-hook block).
 
 **Tests:** 63 in `shift` (pure unit + hook/CLI/run-loop/install integration), all green.
+
+### Live visibility + control — `shift watch` (2026-06-16)
+
+The candor gap in v2 was that a headless run is opaque *while* it runs (good paper trail after, black box during). `shift watch` closes it: a zero-dependency live TUI that reads `.shift/` on an interval and renders a dashboard (progress bar, per-bin status, current bin, elapsed, decision-log tail, "Needs you"), plus **two-way control**. Since an output-only surface (a status bar) can't take input, control is a separate file-based channel under `.shift/` that the engine honors: `STOP` (existing kill switch / `q`), `PAUSE` (`p` — the runner idles, still bounded by the time box), `SKIP` (`k` — the hook marks the current bin `skipped` and advances). New status value: `skipped`. New modules: `lib/control.cjs` (signal channel) and `lib/watch-model.cjs` (`buildModel` + a **pure** `renderFrame`/`renderLine`, so the dashboard and the status-bar one-liner are unit-tested without a TTY). `bin/shift` gains `watch` and `status --line` (a one-liner for the module-1 status bar — ties the two modules together). **Tests:** 77 in `shift`, all green.
+
+*Known limitation:* `pause` and `skip` apply at the next stop-hook boundary (between bins), not mid-bin — the hook is the only point the engine re-evaluates. Mid-bin interruption would need a different mechanism.
