@@ -1,0 +1,23 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # Both modules are zero-dependency (Node built-in test runner), so there's
+      # nothing to install — just run each module's test script.
+      - name: shift tests
+        run: npm test
+        working-directory: shift
+      - name: code-status-bar tests
+        run: npm test
+        working-directory: code-status-bar
