@@ -69,6 +69,19 @@ test('a second `shift start` scrubs stale control/blocker signals from the prior
   }
 });
 
+test('init scaffolds queue/ + a template brief + gitignores .shift/ (idempotent, no clobber)', () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'shift-init-'));
+  run(cwd, ['init']);
+  assert.ok(fs.existsSync(path.join(cwd, 'queue', '01-example.md')));
+  assert.match(fs.readFileSync(path.join(cwd, 'queue', '01-example.md'), 'utf8'), /Definition of done:/);
+  assert.match(fs.readFileSync(path.join(cwd, '.gitignore'), 'utf8'), /^\.shift\/$/m);
+  // re-run: must not clobber an edited brief nor duplicate the gitignore line
+  fs.writeFileSync(path.join(cwd, 'queue', '01-example.md'), '# edited\n');
+  run(cwd, ['init']);
+  assert.equal(fs.readFileSync(path.join(cwd, 'queue', '01-example.md'), 'utf8'), '# edited\n');
+  assert.equal((fs.readFileSync(path.join(cwd, '.gitignore'), 'utf8').match(/\.shift\//g) || []).length, 1);
+});
+
 const { appendRecord } = require('../lib/history.cjs');
 
 function runSafe(cwd, args) { // capture output + exit code even on non-zero exit
@@ -130,7 +143,7 @@ test('history <runId> drills into one run; a branch suffix resolves; unknown -> 
 test('unknown subcommand prints usage and exits non-zero', () => {
   const r = runSafe(repoWithQueue(), ['bogus']);
   assert.equal(r.code, 1);
-  assert.match(r.out, /usage: shift <start\|run\|watch\|history\|status\|stop>/);
+  assert.match(r.out, /usage: shift <init\|start\|run\|watch\|history\|status\|stop>/);
 });
 
 test('start shallow-merges a partial .shift/config.json over the defaults', () => {

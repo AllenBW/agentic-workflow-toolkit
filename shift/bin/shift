@@ -23,6 +23,7 @@ const DEFAULT_CONFIG = {
   definitionOfDone: 'Builds and tests pass; work committed on the run branch.',
   verify: { command: null, maxAttempts: 2 },
   permissionMode: 'acceptEdits',
+  allowSelfQueue: false, // when true, the brief invites the agent to queue follow-up bins (bounded by maxIterations)
   git: { branch: 'shift/{date}', allowPush: false, allowOutwardActions: false }
 };
 
@@ -36,6 +37,35 @@ function ensureBranch(cwd, branch) {
     try { cp.execFileSync('git', args, { cwd, stdio: 'ignore' }); return true; } catch { /* try next */ }
   }
   return false;
+}
+
+// Scaffold a repo for shift: a queue/ with a template brief, and .shift/ gitignored.
+// Lowers the "how do I even start a queue" friction; safe + idempotent (never clobbers).
+function cmdInit() {
+  const cwd = process.cwd();
+  fs.mkdirSync(path.join(cwd, 'queue'), { recursive: true });
+  const example = path.join(cwd, 'queue', '01-example.md');
+  if (!fs.existsSync(example)) {
+    fs.writeFileSync(example, [
+      '# <short title for the task>',
+      '',
+      '<What to do, in plain language — be specific about scope and any constraints.>',
+      '',
+      'Definition of done: <how to tell this bin is complete — e.g. "tests pass and the change is committed on the run branch">',
+      ''
+    ].join('\n'));
+    console.log('created queue/01-example.md  (edit it; add more as queue/NN-*.md)');
+  } else {
+    console.log('queue/01-example.md already exists — left as-is');
+  }
+  const gi = path.join(cwd, '.gitignore');
+  let body = '';
+  try { body = fs.readFileSync(gi, 'utf8'); } catch { /* none */ }
+  if (!body.split('\n').some(l => l.trim() === '.shift/' || l.trim() === '.shift')) {
+    fs.writeFileSync(gi, body + (body && !body.endsWith('\n') ? '\n' : '') + '.shift/\n');
+    console.log('added .shift/ to .gitignore');
+  }
+  console.log('next: edit your briefs, then `shift start --dry-run` to preview, then `shift start`.');
 }
 
 function cmdStart(args) {
@@ -276,14 +306,16 @@ async function cmdRun() {
 }
 
 const [, , sub, ...rest] = process.argv;
-if (sub === 'start') cmdStart(rest);
+if (sub === 'init') cmdInit();
+else if (sub === 'start') cmdStart(rest);
 else if (sub === 'status') cmdStatus(rest);
 else if (sub === 'watch') cmdWatch();
 else if (sub === 'history') cmdHistory(rest);
 else if (sub === 'stop') cmdStop();
 else if (sub === 'run') cmdRun().catch(e => { console.error(e); process.exit(1); });
 else {
-  console.log('usage: shift <start|run|watch|history|status|stop> [--dry-run]');
+  console.log('usage: shift <init|start|run|watch|history|status|stop> [--dry-run]');
+  console.log('  init           scaffold queue/ + a template brief + gitignore .shift/');
   console.log('  watch          live dashboard + control: ↑/↓ select · ⏎ details · [p]ause [k]skip [q]stop [x]exit');
   console.log('  history [run]  the work record: per-run runtime/tokens + totals (or one run\'s detail)');
   console.log('  status --line  one-line summary for a status bar');
