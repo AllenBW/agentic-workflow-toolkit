@@ -30,6 +30,13 @@ test('always explains decision logging, the Needs-you convention, and blocker fl
   assert.match(out, /blocked\.jsonl/);
 });
 
+test('allowSelfQueue invites follow-up bins only when enabled', () => {
+  assert.doesNotMatch(renderBrief(bin, { git: {} }), /queue it|queue\/NN/);
+  const out = renderBrief(bin, { git: {}, allowSelfQueue: true });
+  assert.match(out, /queue\/NN-<slug>\.md/);
+  assert.match(out, /MAY queue/);
+});
+
 test('the forbid-guard reflects each git flag combination independently', () => {
   const pushOnly = renderBrief(bin, { git: { allowPush: false, allowOutwardActions: true } });
   assert.match(pushOnly, /Do NOT push to any remote/);

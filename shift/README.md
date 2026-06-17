@@ -45,9 +45,10 @@ It merges the entry below (safe globally — the hook no-ops in any repo without
 
 ```bash
 cd your-repo
-mkdir queue && $EDITOR queue/01-first-task.md     # one brief per file
-shift start --dry-run                              # preview the queue, branch, bounds
-shift start                                        # init run + create shift/<date> branch
+shift init                     # scaffold queue/ + a template brief, and gitignore .shift/
+$EDITOR queue/01-example.md    # write your first brief (one bin per file) — see "Writing bins"
+shift start --dry-run          # preview the queue, branch, bounds
+shift start                    # init the run + create the shift/<date> branch
 ```
 
 Then either:
@@ -61,6 +62,31 @@ shift stop       # stop cleanly after the current bin
 ```
 
 When it ends, read `.shift/summary.md` (bins done/blocked/skipped + a "Needs you" section) and review the `shift/<date>` branch.
+
+## Writing bins
+
+A **bin** is one Markdown file = one unit of work. The shape that works well unattended:
+
+```markdown
+# Short title for the task
+
+What to do, in plain language. Be specific about scope and any constraints —
+the agent runs with no chance to ask follow-up questions.
+
+Definition of done: how to tell this bin is complete (e.g. "the endpoint returns
+200 with the new field and `npm test` passes; change committed on the run branch").
+```
+
+- **One bin per file**, discovered in order (source folder, then filename) — so `queue/01-…`, `queue/02-…` set the sequence.
+- **The `Definition of done:` line is the load-bearing part.** Unattended, the agent can't ask "is this what you meant?" — a crisp, checkable done-condition is what keeps a bin on-target. (For a hard gate, set `verify.command` so a bin only counts as done when e.g. `npm test` passes.)
+- **Scope each bin to one reviewable change.** Smaller bins → cleaner per-bin commits and a tidier `shift/<date>` diff.
+- **Multiple sources**: point `sources` at more than one folder — e.g. hand-written `queue/` plus a plugin's `docs/superpowers/plans/`. They're treated identically; `kind` only frames defaults.
+
+### Self-generated / dynamic work
+
+shift re-discovers its source folders on **every cycle**, so a bin can grow the backlog: any new `queue/NN-*.md` an agent writes mid-run is picked up as a fresh pending bin and worked in turn. This is always true (it's how new files added between `shift start` and runtime get in), but by default the agent isn't *told* it may do this.
+
+Set **`"allowSelfQueue": true`** in `.shift/config.json` to invite it — the brief then tells the agent it may queue genuine follow-ups as `queue/NN-<slug>.md`. It's bounded by `maxIterations`, branch isolation, and your end-of-run review, so a run can't recurse forever. Leave it off (the default) for a fixed, predictable queue.
 
 ## Watch it live + steer it (`shift watch`)
 
@@ -122,6 +148,7 @@ For an at-a-glance signal in the [Code Status Bar](../code-status-bar), `shift s
   "definitionOfDone": "Builds and tests pass; work committed on the run branch.",
   "verify": { "command": "npm test", "maxAttempts": 2 },
   "permissionMode": "acceptEdits",
+  "allowSelfQueue": false,
   "git": { "branch": "shift/{date}", "allowPush": false, "allowOutwardActions": false }
 }
 ```
@@ -131,6 +158,7 @@ For an at-a-glance signal in the [Code Status Bar](../code-status-bar), `shift s
 - **`maxResumes`** — the runner's own backstop on the number of `claude` spawns (independent of the hook-maintained `maxIterations`/`maxHours`).
 - **`spawnTimeoutMinutes`** — hard per-spawn wall: a wedged `claude` is killed (SIGTERM) so it can't hang the runner. Default 30.
 - **`verify.command`** — per-bin acceptance gate; `null` disables it.
+- **`allowSelfQueue`** — when `true`, the brief invites the agent to queue follow-up bins (`queue/NN-*.md`); see "Self-generated / dynamic work." Default `false`.
 
 > A headless `shift run` grades success on `.shift/summary.md` (written only when the engine finalizes), not on the exit line: a `claude -p` that exits without finalizing is reported as *"no summary written — did NOT finalize"* with a hint to check the hook wiring, never as a false success.
 
@@ -142,6 +170,34 @@ For an at-a-glance signal in the [Code Status Bar](../code-status-bar), `shift s
 - set `"permissionMode": "bypassPermissions"` (broadest; rely on the branch-only / no-push safety model and bounds).
 
 Pick the narrowest mode that lets the work actually proceed.
+
+## Using shift with your `CLAUDE.md`
+
+When shift drives a session, the agent reads your repo's `CLAUDE.md` on top of shift's injected brief — so `CLAUDE.md` is where you set the *house style* for unattended runs. The brief sets the non-negotiable rules; `CLAUDE.md` tunes how the work gets done. A block like this earns its keep:
+
+````markdown
+## Working under shift (unattended runs)
+
+- Keep each bin to one focused, reviewable change; commit it on the run branch with a
+  clear message. Don't fold unrelated work into one commit.
+- A bin is done only when its "Definition of done" is met and `npm test` passes — if it
+  doesn't, fix it; don't mark it done.
+- Never push, open PRs, or touch anything outside this repo. If a step needs that, append
+  `Needs you: <what + why>` to `.shift/log.md` and move on.
+- Prefer the smallest change that satisfies the bin; record loose ends as `Needs you:`
+  notes rather than sprawling.
+- (If `allowSelfQueue` is on) when you find genuine follow-up work, add it as
+  `queue/NN-<slug>.md` rather than expanding the current bin.
+````
+
+Two things worth knowing:
+
+- **Don't restate the safety rules.** shift's brief already forbids push/outward actions and protects its bookkeeping; `CLAUDE.md` is for *preferences* (commit style, test discipline, scope) that the brief deliberately leaves to you.
+- **`CLAUDE.md` can also make the agent reach for shift** — a line like *"when the user has a batch of independent tasks, offer to set them up as a shift queue"* turns it into a tool your sessions suggest, not just one you remember.
+
+### Optional: a nudge hook (encourage usage)
+
+The only hook shift needs is the `Stop` engine. If you want active encouragement, a small `SessionStart` hook can surface an idle queue — *"this repo has N pending shift bins; `begin the shift` or `shift run`."* Genuinely helpful, but it can nag, so it's intentionally **not** part of `install.sh` — add it yourself if you want it. Easing the *start* is better handled by `shift init` than by a hook.
 
 ## Develop
 
