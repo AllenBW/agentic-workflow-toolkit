@@ -21,7 +21,7 @@ That combination is the **transparency** this toolkit is built on: a shortcut th
 
 Each line answers exactly one question:
 
-1. **Where am I, and how is the agent configured?**
+1. **How full is the context window, how is the agent configured, and where am I?**
 2. **How close am I to the short-term (5-hour) limit, and what is this session costing?**
 3. **How close am I to the weekly limits, and when do they reset?**
 4. **Am I in a git worktree?** — *this line only appears when you are.*
@@ -38,28 +38,33 @@ So `Weekly Opus: [████│█████████░░] 88.0%` with 
 
 A status line is ~3–4 lines of prime real estate; every field competes. Our rule: **a field earns a spot only if it changes a decision you'd make while coding.** Here's the case for each.
 
-### Line 1 — workspace & agent configuration
+### Line 1 — context, agent configuration & workspace
 
-- **`Model: Opus 4.8`** — which model is answering. Capability and cost vary enormously between models, so this is the single most decision-relevant fact on the bar; every other number is read relative to it. A wrong assumption here ("I thought I was on Sonnet") changes everything — that's why it leads.
+- **`Context: [██████████░░░░░░] 131k/200k (66%)`** — how full the context window is. This is your early warning for quality: as it fills, the agent's grip on the conversation weakens and an auto-compaction (a lossy summarization) looms. It's the cue to wrap a thread or `/clear` *before* quality degrades.
+- **`· 82% usable`** — the same context measured against the point where auto-compaction kicks in, not the full window. The bar can read a comfortable `66%` while you're actually `82%` of the way to a compaction, so this is the number to watch when deciding to wrap up or `/compact` on your own terms. ccstatusline assumes compaction starts at 80% of the window; that's its estimate, not a value Claude Code reports.
+- **`↻ 2` (compaction counter)** — how many times context has auto-compacted this session, i.e. how many times the agent silently summarized and dropped detail. **Hidden at zero.** A silent failure mode made visible: if you see `↻ 3`, that explains why the agent "forgot" something.
+
+> **Why context leads the line:** ccstatusline truncates an overflowing line from the right. Context used to sit at the far end, after cwd and branch, so in a narrow or split pane it was the first thing cut. It now comes first and the workspace/git fields sit after the flex separator, where truncation hits them instead.
+
+- **`Model: Opus 4.8`** — which model is answering. Capability and cost vary enormously between models, so every other number is read relative to it. A wrong assumption here ("I thought I was on Sonnet") changes everything.
 - **`Thinking: high`** — the reasoning-effort level. Higher effort means deeper reasoning *and* faster token burn, so it's the honest answer to "why is this slower / more expensive right now?" It shows `default` at rest, which is itself information (you're *not* in a high-burn mode). *Caveat: Claude Code can report this inaccurately when several sessions run at once.*
 - **`cwd: ~/.../project`** — the working directory, home-abbreviated and trimmed to the last few segments. Cheap insurance against the classic mistake of acting in the wrong checkout.
 - **`⎇ feat/x`** — the current git branch; the anchor for the next two fields.
 - **`(+128,-34)`** — lines added/removed in the working tree: a continuous read on how much uncommitted work is at risk.
 - **`↑2` (ahead/behind)** — commits ahead of / behind your upstream. **Hidden whenever you're in sync, have no upstream, or aren't in a repo** — so it costs zero space until the moment it matters, then catches "forgot to push" and "I'm building on a stale base."
-- **`Context: [██████████░░░░░░] 131k/200k (66%)`** — how full the context window is. This is your early warning for quality: as it fills, the agent's grip on the conversation weakens and an auto-compaction (a lossy summarization) looms. It's the cue to wrap a thread or `/clear` *before* quality degrades.
-- **`↻ 2` (compaction counter)** — how many times context has auto-compacted this session, i.e. how many times the agent silently summarized and dropped detail. **Hidden at zero.** A silent failure mode made visible: if you see `↻ 3`, that explains why the agent "forgot" something.
 
 ### Line 2 — the session / 5-hour limit, and cost
 
 - **`Session: [█████████│██░░░░] 72.0%`** — percent of Claude Code's **5-hour rolling limit** used, with the pace cursor. This is the limit that throttles you *today* — the closest thing to a daily budget, and the most important single gauge if you work in long bursts.
-- **`Reset: 1hr 59m`** — time until that 5-hour window resets. Paired with the bar it becomes an actionable sentence: "72% used, frees up in ~2h."
+- **`Reset: 1hr 59m · 10-17 12:06 AM`** — time until that 5-hour window resets, **and** the local clock time when it does. The countdown answers "how long?"; the timestamp answers "can I finish before I stop for the day?" without mental arithmetic. The date is kept because a 5-hour window often crosses midnight.
 - **`Cost: $3.27`** — **the total US-dollar cost of the current session**, taken straight from Claude Code's own accounting (`cost.total_cost_usd`). This is the field people are most surprised we keep, and it's the most on-brand for the whole toolkit: the agent is spending real money on your behalf, and you should see it without opening a dashboard. Cost-awareness quietly changes behavior — you notice when a session has gotten expensive and make different calls about scope and model. **Transparency about money is the purest form of candor here**, which is exactly why it earns a permanent slot rather than living in a billing page you never open.
+- **`Cache: 🟢 59:54`** — time left before the prompt cache expires. Each request re-uses the cached conversation cheaply; once the cache goes cold (❄️), the next message re-reads the entire context at full price and responds slower. It's the cue for "send it now, or accept a re-read when I'm back." Shows 🔥 while Claude is working and hides until there's cache activity. Set to Claude Code's 1-hour cache (`ttlSeconds: 3600`); change it to `300` if your sessions use the 5-minute default.
 
 ### Line 3 — the weekly limits, and when they reset
 
 - **`Weekly: [████│██░░░░░░░░░] 41.0%`** — percent of your **overall weekly limit** used, with pace cursor. The slower ceiling that governs your whole week.
 - **`Weekly Opus: [████│█████████░░] 88.0%`** — the **separate weekly Opus budget** (the one Max users hit first). It's broken out because Opus is metered apart from everything else: you can be fine on the overall weekly and still be about to lose Opus for the week. The pace cursor makes "you'll run out of Opus by Thursday" visible on Monday.
-- **`Weekly Reset: 4d 23hr · 06-18 4:37 AM`** — time remaining **and** an absolute local timestamp. The duration tells you "about 5 days"; the date lets you actually plan around it ("frees up Wednesday morning"). The 5-hour reset on Line 2 stays duration-only on purpose — a calendar date is noise for a window that always resets the same day.
+- **`Weekly Reset: 4d 23hr · Wed 4:37 AM`** — time remaining **and** an absolute local timestamp. The duration tells you "about 5 days"; the date lets you actually plan around it ("frees up Wednesday morning").
 
 ### Line 4 — worktree (only when present)
 
@@ -68,6 +73,7 @@ A status line is ~3–4 lines of prime real estate; every field competes. Our ru
 ## Design choices worth knowing
 
 - **Pace cursor over color alarms.** ccstatusline doesn't recolor a bar red at 90% — widget colors are static. The live signal is *fill vs. cursor* plus the percentage, and we lean into that instead of faking a threshold.
+- **No network on the render path.** The installer pins ccstatusline into `~/.config/ccstatusline/engine` and Claude Code runs it through `scripts/statusline.sh`. `npx -y ccstatusline@latest` asks the npm registry for the latest version on every refresh (~1s), and when the registry is unreachable it hangs past Claude Code's timeout and the whole bar goes blank.
 - **Zero extra latency.** Session and weekly numbers come straight from the status payload Claude Code already hands the bar (`rate_limits`), so there's no API call and no lag.
 - **No special fonts.** Every glyph (`█ ░ │ ⎇ ↑ ↻ ·`) is standard Unicode, so it renders in any modern terminal. Powerline is off by default for the same reason.
 - **Self-localizing time.** The weekly reset timestamp uses `"timezone": "local"`, so it renders in each user's own timezone with no setup.
@@ -101,7 +107,7 @@ That ambient, near-zero-effort awareness is the entire point of a status bar, an
 
 ### Prerequisites
 
-- **Claude Code**, and **ccstatusline** available (`npx -y ccstatusline@latest` works out of the box, or install it globally).
+- **Claude Code** and **Node/npm**. The installer pins its own copy of ccstatusline (currently `2.2.32`), so there's nothing else to install.
 
 ### One command
 
@@ -109,7 +115,7 @@ That ambient, near-zero-effort awareness is the entire point of a status bar, an
 curl -fsSL https://raw.githubusercontent.com/AllenBW/agentic-workflow-toolkit/main/code-status-bar/install.sh | bash
 ```
 
-Backs up any existing config, installs `settings.json`, and prints how to wire it into Claude Code.
+Backs up any existing config, installs `settings.json`, pins the ccstatusline engine under `~/.config/ccstatusline/engine`, places the `statusline.sh` wrapper, and prints how to wire it into Claude Code.
 
 For the **colored variant** (also places the Node helper script):
 
@@ -124,17 +130,21 @@ mkdir -p ~/.config/ccstatusline
 cp ~/.config/ccstatusline/settings.json ~/.config/ccstatusline/settings.json.bak 2>/dev/null || true
 curl -fsSL https://raw.githubusercontent.com/AllenBW/agentic-workflow-toolkit/main/code-status-bar/settings.json \
   -o ~/.config/ccstatusline/settings.json
+mkdir -p ~/.config/ccstatusline/scripts
+curl -fsSL https://raw.githubusercontent.com/AllenBW/agentic-workflow-toolkit/main/code-status-bar/scripts/statusline.sh \
+  -o ~/.config/ccstatusline/scripts/statusline.sh
+npm install --prefix ~/.config/ccstatusline/engine --no-save ccstatusline@2.2.32
 ```
 
 ### Wire it into Claude Code
 
-Point your Claude Code `~/.claude/settings.json` status line at ccstatusline:
+Point your Claude Code `~/.claude/settings.json` status line at the wrapper:
 
 ```json
 {
   "statusLine": {
     "type": "command",
-    "command": "npx -y ccstatusline@latest",
+    "command": "sh \"$HOME/.config/ccstatusline/scripts/statusline.sh\"",
     "padding": 0,
     "refreshInterval": 10
   }
@@ -143,22 +153,22 @@ Point your Claude Code `~/.claude/settings.json` status line at ccstatusline:
 
 (`refreshInterval` needs Claude Code ≥ 2.1.97.) Open a new session and the bar appears.
 
+**Using Orca?** Orca installs its own `statusLine` command, which forwards the payload to the Orca app and prints nothing, so the bar disappears. The wrapper forwards the payload to Orca's hook when it's present, so pointing `statusLine` back at the wrapper keeps both working.
+
 ### Hand it to your agent
 
-Already running Claude Code with ccstatusline available? Paste this and let the agent install it:
+Already running Claude Code? Paste this and let the agent install it:
 
 ```text
 Install the "Code Status Bar" config from the Agentic Workflow Toolkit.
 
-1. Back up my current ccstatusline config if it exists:
-   cp ~/.config/ccstatusline/settings.json ~/.config/ccstatusline/settings.json.bak-$(date +%s) 2>/dev/null || true
-2. Download the config into place:
-   mkdir -p ~/.config/ccstatusline
-   curl -fsSL https://raw.githubusercontent.com/AllenBW/agentic-workflow-toolkit/main/code-status-bar/settings.json -o ~/.config/ccstatusline/settings.json
-3. Make sure ~/.claude/settings.json has a statusLine block running ccstatusline
-   ("type":"command", "command":"npx -y ccstatusline@latest"); add it if missing,
-   WITHOUT disturbing any of my other settings.
-4. Confirm the installed file is valid JSON, then tell me to open a new session to see it.
+1. Run the installer (it backs up any existing config):
+   curl -fsSL https://raw.githubusercontent.com/AllenBW/agentic-workflow-toolkit/main/code-status-bar/install.sh | bash
+2. Make sure ~/.claude/settings.json has a statusLine block running the wrapper
+   ("type":"command", "command":"sh \"$HOME/.config/ccstatusline/scripts/statusline.sh\""),
+   replacing any existing statusLine, WITHOUT disturbing any of my other settings.
+3. Confirm the installed config is valid JSON.
+4. Tell me to open a new session to see it.
 
 Do not change any other part of my Claude Code configuration.
 ```
@@ -173,6 +183,7 @@ Do not change any other part of my Claude Code configuration.
 ## Notes
 
 - **Worktree detection** uses Claude Code's `worktree` signal in the status payload (populated for Claude-Code-tracked worktrees). It auto-hides when absent, which is exactly why the line can vanish cleanly — the trade-off vs. raw filesystem detection, which can't self-hide.
+- **macOS keychain reads (default variant).** ccstatusline's native usage widgets fall back to the usage API when a bucket is missing from the status payload, and that reads the macOS keychain on every render (upstream [#740](https://github.com/sirmalloc/ccstatusline/issues/740)). If your payload has no weekly-Opus bucket, the default variant hits this. The colored variant reads only the payload and never touches the keychain.
 - **Threshold coloring** isn't in ccstatusline's stock widgets — the [colored variant](#color--static-by-default-status-driven-by-opt-in) above adds it via a `custom-command` helper (`scripts/usage-bar.cjs`).
 
 ## Credits
