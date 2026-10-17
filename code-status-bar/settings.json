@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "colorLevel": 2,
   "flexMode": "full-minus-40",
   "compactThreshold": 60,
@@ -18,28 +18,37 @@
   },
   "lines": [
     [
-      { "id": "l1-model", "type": "model", "color": "cyan", "bold": true },
+      { "id": "l1-ctxbar", "type": "context-bar", "color": "brightBlue", "metadata": { "display": "progress-short" } },
+      { "id": "l1-sep-usable", "type": "separator", "character": " · ", "color": "brightBlack" },
+      { "id": "l1-ctx-usable", "type": "context-percentage-usable", "color": "brightBlue", "rawValue": true, "numberFormat": { "decimals": 0 } },
+      { "id": "l1-ctx-usable-label", "type": "custom-text", "customText": " usable", "color": "brightBlack" },
+      { "id": "l1-sep5", "type": "separator", "character": " " },
+      { "id": "l1-compaction", "type": "compaction-counter", "color": "brightYellow", "metadata": { "hide": "zero" } },
       { "id": "l1-sep0", "type": "separator" },
-      { "id": "l1-effort", "type": "thinking-effort", "color": "brightCyan" },
+      { "id": "l1-model", "type": "model", "color": "cyan", "bold": true },
       { "id": "l1-sep1", "type": "separator" },
+      { "id": "l1-effort", "type": "thinking-effort", "color": "brightCyan" },
+      { "id": "l1-gap", "type": "separator", "character": " " },
+      { "id": "l1-flex", "type": "flex-separator" },
       { "id": "l1-cwd", "type": "current-working-dir", "color": "blue", "metadata": { "abbreviateHome": "true", "segments": "3" } },
       { "id": "l1-sep2", "type": "separator" },
       { "id": "l1-branch", "type": "git-branch", "color": "magenta" },
       { "id": "l1-sep3", "type": "separator" },
       { "id": "l1-changes", "type": "git-changes", "color": "yellow" },
       { "id": "l1-sep4", "type": "separator", "character": " " },
-      { "id": "l1-aheadbehind", "type": "git-ahead-behind", "color": "cyan", "metadata": { "hideNoGit": "true" } },
-      { "id": "l1-flex", "type": "flex-separator" },
-      { "id": "l1-ctxbar", "type": "context-bar", "color": "brightBlue", "metadata": { "display": "progress-short" } },
-      { "id": "l1-sep5", "type": "separator" },
-      { "id": "l1-compaction", "type": "compaction-counter", "color": "brightYellow", "metadata": { "hideZero": "true" } }
+      { "id": "l1-aheadbehind", "type": "git-ahead-behind", "color": "cyan", "metadata": { "hide": "no-git,no-upstream,zero" } }
     ],
     [
       { "id": "l2-session", "type": "session-usage", "color": "brightYellow", "bold": true, "metadata": { "display": "progress-short", "cursor": "true" } },
       { "id": "l2-sep1", "type": "separator" },
       { "id": "l2-reset", "type": "reset-timer", "color": "brightBlack" },
+      { "id": "l2-sep2", "type": "separator", "character": " · ", "color": "brightBlack" },
+      { "id": "l2-reset-date", "type": "reset-timer", "color": "brightBlack", "rawValue": true, "metadata": { "absolute": "true", "timezone": "local", "compact": "true", "hour12": "true" } },
+      { "id": "l2-gap", "type": "separator", "character": " " },
       { "id": "l2-flex", "type": "flex-separator" },
-      { "id": "l2-cost", "type": "session-cost", "color": "green" }
+      { "id": "l2-cost", "type": "session-cost", "color": "green" },
+      { "id": "l2-sep3", "type": "separator" },
+      { "id": "l2-cache", "type": "cache-timer", "color": "brightCyan", "metadata": { "ttlSeconds": "3600", "hide": "empty" } }
     ],
     [
       { "id": "l3-weekly", "type": "weekly-usage", "color": "brightBlue", "bold": true, "metadata": { "display": "progress-short", "cursor": "true" } },
@@ -48,7 +57,7 @@
       { "id": "l3-sep2", "type": "separator" },
       { "id": "l3-weekreset", "type": "weekly-reset-timer", "color": "brightBlack" },
       { "id": "l3-sep3", "type": "separator", "character": " · ", "color": "brightBlack" },
-      { "id": "l3-weekreset-date", "type": "weekly-reset-timer", "color": "brightBlack", "rawValue": true, "metadata": { "absolute": "true", "timezone": "local", "compact": "true", "hour12": "true" } }
+      { "id": "l3-weekreset-date", "type": "weekly-reset-timer", "color": "brightBlack", "rawValue": true, "metadata": { "absolute": "true", "timezone": "local", "compact": "true", "hour12": "true", "weekday": "true" } }
     ],
     [
       { "id": "l4-wtmode", "type": "worktree-mode", "color": "brightYellow" },

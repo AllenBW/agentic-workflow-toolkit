@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Code Status Bar installer — Agentic Workflow Toolkit
-# Default: installs the portable, zero-dependency config.
+# Default: installs the portable config plus a pinned ccstatusline engine.
 #   --colored : installs the status-driven color variant (places a Node helper script).
 set -euo pipefail
 
@@ -8,6 +8,9 @@ REPO_RAW="https://raw.githubusercontent.com/AllenBW/agentic-workflow-toolkit/mai
 CONFIG_DIR="$HOME/.config/ccstatusline"
 SCRIPTS_DIR="$CONFIG_DIR/scripts"
 DEST="$CONFIG_DIR/settings.json"
+ENGINE_DIR="$CONFIG_DIR/engine"
+# Pinned engine version. Bump deliberately after checking upstream release notes.
+CCSTATUSLINE_VERSION="2.2.32"
 
 COLORED=0
 [ "${1:-}" = "--colored" ] && COLORED=1
@@ -61,8 +64,20 @@ if [ -f "$DEST" ]; then
   echo "Backed up existing config -> $BAK"
 fi
 
+mkdir -p "$SCRIPTS_DIR"
+fetch "scripts/statusline.sh" "$SCRIPTS_DIR/statusline.sh"
+chmod +x "$SCRIPTS_DIR/statusline.sh"
+
+# Install the engine locally so rendering never touches the network.
+if command -v npm >/dev/null 2>&1; then
+  npm install --prefix "$ENGINE_DIR" --no-save --no-audit --no-fund --silent \
+    "ccstatusline@$CCSTATUSLINE_VERSION" \
+    && echo "Installed ccstatusline $CCSTATUSLINE_VERSION -> $ENGINE_DIR"
+else
+  echo "Warning: npm not found; statusline.sh will fall back to npx (slower)." >&2
+fi
+
 if [ "$COLORED" -eq 1 ]; then
-  mkdir -p "$SCRIPTS_DIR"
   fetch "scripts/usage-bar.cjs" "$SCRIPTS_DIR/usage-bar.cjs"
   fetch "settings.colored.json" "$DEST"
   echo "Installed COLORED variant -> $DEST"
@@ -73,9 +88,9 @@ else
 fi
 
 echo
-echo "Next, make sure ~/.claude/settings.json points its status line at ccstatusline:"
+echo "Next, make sure ~/.claude/settings.json points its status line at the wrapper:"
 cat <<'EOF'
-  "statusLine": { "type": "command", "command": "npx -y ccstatusline@latest", "padding": 0, "refreshInterval": 10 }
+  "statusLine": { "type": "command", "command": "sh \"$HOME/.config/ccstatusline/scripts/statusline.sh\"", "padding": 0, "refreshInterval": 10 }
 EOF
 echo
 echo "Then open a new Claude Code session. The reset timestamp localizes to your timezone automatically."
